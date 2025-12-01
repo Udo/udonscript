@@ -76,10 +76,10 @@ x == y   x != y   x < y    x <= y   x > y    x >= y
 ### Arrays/Maps
 ```javascript
 var data = {}
-data.name = "Alice"
-data.age = 30
+data:name = "Alice"
+data:age = 30
 
-var name = data.name
+var name = data:name
 var size = len(data)
 
 foreach (key, value in data) {
@@ -244,7 +244,7 @@ function normalize(v) {
 2. **Integer division**: `5 / 2` yields 2, not 2.5 (if both are integers)
 3. **Angles in radians**: Trig functions use radians, not degrees
 4. **Assignment vs comparison**: `=` assigns, `==` compares
-5. **Array/map access**: Use dot notation (`data.key`), not brackets
+5. **Array/map access**: Use colon notation (`data:key`); dot is for methods
 6. **No string interpolation**: Must concatenate with `+`
 7. **Case statements don't auto-break**: Each case executes until return or end of switch
 

@@ -28,7 +28,6 @@ typedef long s64;
 typedef double f64;
 typedef std::string string;
 
-// Simple vector types for standalone use
 struct Vector2
 {
 	f32 x, y;

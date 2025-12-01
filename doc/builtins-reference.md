@@ -841,7 +841,7 @@ print(colors.0)  // red
 var data = {x: 10, y: 20, label: "point"}
 ```
 
-### `array_keys(arr)`
+### `keys(arr)`
 
 Returns an array of all keys in an array/object (internal function used by foreach).
 
@@ -853,23 +853,23 @@ Returns an array of all keys in an array/object (internal function used by forea
 **Example:**
 ```javascript
 var data = {name: "Alice", age: 30, city: "NYC"}
-var keys = array_keys(data)
+var keys = keys(data)
 // keys contains: ["name", "age", "city"]
 ```
 
-### `array_len(arr)`
+### `len(value)`
 
-Returns the number of elements in an array/object (internal function used by foreach).
+Returns the number of elements in an array/object or the length of a string (internal function used by foreach). Other types return 0.
 
 **Parameters:**
-- `arr: array` - Array or object
+- `value: any` - Value to measure
 
-**Returns:** `s32` - Number of elements
+**Returns:** `s32` - Number of elements/characters
 
 **Example:**
 ```javascript
 var data = {x: 10, y: 20, z: 30}
-var count = array_len(data)  // count = 3
+var count = len(data)  // count = 3
 ```
 
 ### `array_get(arr, key)`

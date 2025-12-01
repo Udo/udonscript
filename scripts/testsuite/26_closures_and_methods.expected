@@ -1,0 +1,7 @@
+method lower: closure test
+method builtin: 1
+closure call: 103
+nested closure: 117
+method builtin string: mixed
+array property callable: 42
+method property: custom:ok

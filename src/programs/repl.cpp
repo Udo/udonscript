@@ -21,19 +21,16 @@ int main(int argc, char* argv[])
 
 	while (true)
 	{
-		// Show prompt
 		if (accumulated_code.empty())
 			std::cout << ">>> ";
 		else
 			std::cout << "... ";
 		std::cout.flush();
 
-		// Read line
 		std::string line;
 		if (!std::getline(std::cin, line))
 			break;
 
-		// Trim whitespace from line
 		size_t start = line.find_first_not_of(" \t\r\n");
 		size_t end = line.find_last_not_of(" \t\r\n");
 		if (start != std::string::npos && end != std::string::npos)
@@ -41,7 +38,6 @@ int main(int argc, char* argv[])
 		else
 			line = "";
 
-		// Check for special commands
 		if (line == "exit" || line == "quit")
 		{
 			std::cout << "Goodbye!\n";
@@ -78,16 +74,13 @@ int main(int argc, char* argv[])
 			continue;
 		}
 
-		// Skip empty lines when not accumulating
 		if (line.empty() && accumulated_code.empty())
 			continue;
 
-		// Accumulate the line
 		if (!accumulated_code.empty())
 			accumulated_code += "\n";
 		accumulated_code += line;
 
-		// Count braces to determine if we need more input
 		for (char c : line)
 		{
 			if (c == '{')
@@ -96,29 +89,24 @@ int main(int argc, char* argv[])
 				brace_depth--;
 		}
 
-		// Check if this line starts a function definition
 		if (line.find("function") == 0)
 			in_function = true;
 
-		// If we're inside braces or a function, continue accumulating
 		if (brace_depth > 0 || (in_function && brace_depth >= 0))
 			continue;
 
 		in_function = false;
 
-		// Try to execute the accumulated code
 		std::string code_to_execute = accumulated_code;
 		accumulated_code.clear();
 		brace_depth = 0;
 
-		// Check if it's a function definition
 		size_t func_pos = code_to_execute.find("function");
 		bool is_function = (func_pos != std::string::npos &&
 							(func_pos == 0 || !std::isalnum(code_to_execute[func_pos - 1])));
 
 		if (is_function)
 		{
-			// Compile function definition at top level
 			CodeLocation result = interp.compile(code_to_execute);
 			if (result.has_error)
 			{
@@ -133,7 +121,6 @@ int main(int argc, char* argv[])
 		}
 		else
 		{
-			// Wrap in a function and execute
 			std::string wrapper = "function __repl_eval_" + std::to_string(line_number) + "() {\n";
 			wrapper += code_to_execute + "\n";
 			wrapper += "}";
@@ -147,7 +134,6 @@ int main(int argc, char* argv[])
 			}
 			else
 			{
-				// Execute the function
 				UdonValue return_value;
 				std::string func_name = "__repl_eval_" + std::to_string(line_number);
 				CodeLocation run_result = interp.run(func_name, {}, {}, return_value);

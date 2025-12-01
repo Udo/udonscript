@@ -1,4 +1,4 @@
-#include "udonscript_internal.h"
+#include "udonscript-internal.h"
 #include <sstream>
 #include <cmath>
 #include <memory>
@@ -152,6 +152,9 @@ namespace udon_script_helpers
 				ss << "]";
 				break;
 			}
+			case UdonValue::Type::Function:
+				ss << "<function:" << (v.function ? v.function->function_name : "null") << ">";
+				break;
 			case UdonValue::Type::None:
 				ss << "none";
 				break;
@@ -207,6 +210,8 @@ namespace udon_script_helpers
 				return "Vector4";
 			case UdonValue::Type::Array:
 				return "Array";
+			case UdonValue::Type::Function:
+				return "Function";
 			default:
 				return "Any";
 		}
@@ -343,6 +348,8 @@ namespace udon_script_helpers
 				return v.vec3_value != Vector3(0.0f, 0.0f, 0.0f);
 			case UdonValue::Type::Vector4:
 				return v.vec4_value != Vector4(0.0f, 0.0f, 0.0f, 0.0f);
+			case UdonValue::Type::Function:
+				return v.function != nullptr;
 			default:
 				return false;
 		}

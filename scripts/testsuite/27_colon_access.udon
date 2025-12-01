@@ -1,0 +1,12 @@
+// Test: colon access and safe fallbacks
+function main() {
+    var obj = {a: {b: 2}, x: 1, arr: {0: "zero", "1": "one"}}
+    print("direct:", obj:a:b)
+    print("missing:", obj:a:c)
+    print("wrongtype:", obj:x:b)
+    // Bracket access also safe
+    print("bracket missing:", obj["missing"])
+    print("mixed colon/bracket:", obj:a["b"])
+    print("numeric string key:", obj:arr:"1")
+    print("numeric index via bracket:", obj:arr[0])
+}

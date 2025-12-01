@@ -8,7 +8,6 @@ bin/*
 
 # Intermediate build files
 tmp/*
-!tmp/.gitkeep
 
 # CMake build files
 build_cmake/

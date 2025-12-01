@@ -1,13 +1,13 @@
 // Test: Array property access and modification
 function main() {
-	var arr = {x: 10, y: 20, z: 30};
-	
-	print("x:", arr.x);
-	print("y:", arr.y);
-	print("z:", arr.z);
-	
-	var modified = {x: 15};
-	print("x_modified:", modified.x);
-	
-	print("len:", len(arr));
-}
+		var arr = {x: 10, y: 20, z: 30};
+		
+		print("x:", arr:x);
+		print("y:", arr:y);
+		print("z:", arr:z);
+		
+		var modified = {x: 15};
+		print("x_modified:", modified:x);
+		
+		print("len:", len(arr));
+	}

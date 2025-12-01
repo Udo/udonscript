@@ -39,6 +39,7 @@ struct Token
 struct UdonValue
 {
 	struct ManagedArray;
+	struct ManagedFunction;
 
 	enum class Type
 	{
@@ -51,6 +52,7 @@ struct UdonValue
 		Vector4,
 		Bool,
 		Array, // managed array/map
+		Function, // managed closure/function object
 		None
 	};
 
@@ -66,8 +68,9 @@ struct UdonValue
 	};
 	std::string string_value;
 	ManagedArray* array_map = nullptr;
+	ManagedFunction* function = nullptr;
 
-	UdonValue() : type(Type::None) {}
+	UdonValue() : type(Type::None), ptr_value(nullptr), array_map(nullptr), function(nullptr) {}
 };
 
 using UdonBuiltinFunction = std::function<bool(struct UdonInterpreter*,
@@ -107,6 +110,7 @@ struct UdonInstruction
 		TO_BOOL,
 		LOGICAL_NOT,
 		GET_PROP,
+		MAKE_CLOSURE,
 		CALL,
 		RETURN,
 		POP,
@@ -141,7 +145,9 @@ struct UdonInterpreter
 	std::unordered_set<std::string> declared_globals;
 	std::vector<UdonValue> stack;
 	std::vector<UdonValue::ManagedArray*> heap_arrays;
+	std::vector<UdonValue::ManagedFunction*> heap_functions;
 	s32 global_init_counter = 0;
+	s32 lambda_counter = 0;
 
 	UdonInterpreter();
 	~UdonInterpreter();
@@ -162,10 +168,18 @@ struct UdonInterpreter
 		const std::string& return_type,
 		UdonBuiltinFunction fn);
 	UdonValue::ManagedArray* allocate_array();
+	UdonValue::ManagedFunction* allocate_function();
 };
 
 struct UdonValue::ManagedArray
 {
 	std::unordered_map<std::string, UdonValue> values;
+	bool marked = false;
+};
+
+struct UdonValue::ManagedFunction
+{
+	std::string function_name;
+	std::unordered_map<std::string, UdonValue> captured_locals;
 	bool marked = false;
 };

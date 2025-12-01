@@ -8,10 +8,8 @@ int main(int argc, char* argv[])
 	std::cout << "UdonScript Hello World\n";
 	std::cout << "======================\n\n";
 
-	// Create interpreter
 	UdonInterpreter interp;
 
-	// Simple hello world script
 	const char* script = R"(
 function greet(name) {
     print("Hello, " + name + "!")
@@ -23,17 +21,14 @@ function main() {
     var result = greet("World")
     print(result)
     
-    // Test some math
     var x = 10
     var y = 20
     var sum = x + y
     print("Sum of " + to_string(x) + " and " + to_string(y) + " is: " + to_string(sum))
     
-    // Test vectors
     var v = vec3(1.0, 2.0, 3.0)
     print("Vector: " + to_string(v))
     
-    // Test some math functions
     var angle = 3.14159 / 4.0  // 45 degrees in radians
     var sine = sin(angle)
     var cosine = cos(angle)
@@ -43,7 +38,6 @@ function main() {
 }
 )";
 
-	// Compile the script
 	std::cout << "Compiling script...\n";
 	CodeLocation compile_result = interp.compile(script);
 
@@ -59,7 +53,6 @@ function main() {
 	std::cout << "Running main()...\n";
 	std::cout << "-------------------\n";
 
-	// Run the main function
 	UdonValue return_value;
 	std::vector<UdonValue> args;
 	std::unordered_map<std::string, UdonValue> named_args;

@@ -1,0 +1,7 @@
+direct: 2
+missing: none
+wrongtype: none
+bracket missing: none
+mixed colon/bracket: 2
+numeric string key: one
+numeric index via bracket: zero

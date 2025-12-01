@@ -20,6 +20,23 @@ function main() {
     
     var v = vec3(1.0, 2.0, 3.0)
     print("Vector: " + to_string(v))
+
+    // Method-call sugar on literals
+    print("lowercase banner: " + "=== UdonScript Test ===".to_lower())
+
+    // Closure capturing local values
+    var bias = 3
+    var add_bias = function(x) {
+        return x + bias
+    }
+    bias = 100 // closures observe updated values
+    print("closure result: " + to_string(add_bias(5)))
+
+    // Array method precedence: property callable wins over builtin name
+    var obj = {
+        len: function(self) { return 123 }
+    }
+    print("custom method: " + to_string(obj.len()))
     
     return result
 }

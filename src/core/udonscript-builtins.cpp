@@ -1,4 +1,4 @@
-#include "udonscript_internal.h"
+#include "udonscript-internal.h"
 #include <fstream>
 #include <sstream>
 #include <algorithm>
@@ -95,7 +95,6 @@ namespace udon_script_builtins
 			});
 		};
 
-		// Array constructor
 		interp->register_function("array", "", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>&, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation&)
 		{
 			out.type = UdonValue::Type::Array;
@@ -103,9 +102,6 @@ namespace udon_script_builtins
 			return true;
 		});
 
-		// Object literal helper: __object_literal(value_n, ..., value_1, key_1, ..., key_n, count)
-		// Stack: [value_n, ..., value_1] (values in reverse order of parsing)
-		// Args: [key_1, ..., key_n, count]
 		interp->register_function("__object_literal", "", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 		{
 			if (positional.empty())
@@ -115,7 +111,6 @@ namespace udon_script_builtins
 				return true;
 			}
 
-			// Last argument is the count
 			if (positional.back().type != UdonValue::Type::S32)
 			{
 				err.has_error = true;
@@ -125,7 +120,6 @@ namespace udon_script_builtins
 
 			s32 count = positional.back().s32_value;
 
-			// We should have: count values + count keys + 1 count = count*2 + 1 args
 			if (positional.size() != static_cast<size_t>(count * 2 + 1))
 			{
 				err.has_error = true;
@@ -133,28 +127,22 @@ namespace udon_script_builtins
 				return true;
 			}
 
-			// Create array
 			out.type = UdonValue::Type::Array;
 			out.array_map = interp->allocate_array();
 
-			// Keys are at positions [count, count+1, ..., count*2-1]
-			// Values are at positions [0, 1, ..., count-1]
 			for (s32 i = 0; i < count; i++)
 			{
 				const UdonValue& key = positional[count + i];
 				const UdonValue& value = positional[i];
 
-				// Convert key to string using the helper
 				std::string key_str = key_from_value(key);
 
-				// Set property using the helper
 				array_set(out, key_str, value);
 			}
 
 			return true;
 		});
 
-		// Print function
 		interp->register_function("print", "values:any...", "none", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation&)
 		{
 			std::ostringstream ss;
@@ -171,17 +159,22 @@ namespace udon_script_builtins
 			return true;
 		});
 
-		// Array helper functions for foreach
-		interp->register_function("array_keys", "arr:array", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		auto register_alias = [interp](const std::string& alias, const std::string& target)
+		{
+			auto it = interp->builtins.find(target);
+			if (it != interp->builtins.end())
+				interp->builtins[alias] = it->second;
+		};
+
+		interp->register_function("keys", "arr:array", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 		{
 			if (positional.empty() || positional[0].type != UdonValue::Type::Array)
 			{
 				err.has_error = true;
-				err.opt_error_message = "array_keys expects an array";
+				err.opt_error_message = "keys expects an array";
 				return true;
 			}
 
-			// Create array of keys
 			out.type = UdonValue::Type::Array;
 			out.array_map = interp->allocate_array();
 
@@ -195,19 +188,7 @@ namespace udon_script_builtins
 
 			return true;
 		});
-
-		interp->register_function("array_len", "arr:array", "s32", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
-		{
-			if (positional.empty() || positional[0].type != UdonValue::Type::Array)
-			{
-				err.has_error = true;
-				err.opt_error_message = "array_len expects an array";
-				return true;
-			}
-
-			out = make_int(static_cast<s32>(positional[0].array_map->values.size()));
-			return true;
-		});
+		register_alias("array_keys", "keys");
 
 		interp->register_function("array_get", "arr:array, key:any", "any", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 		{
@@ -221,14 +202,12 @@ namespace udon_script_builtins
 			std::string key_str = key_from_value(positional[1]);
 			if (!array_get(positional[0], key_str, out))
 			{
-				// Key not found, return None
 				out = make_none();
 			}
 
 			return true;
 		});
 
-		// File I/O functions
 		interp->register_function("load_from_file", "path:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 		{
 			if (positional.size() != 1)
@@ -358,7 +337,6 @@ namespace udon_script_builtins
 			return true;
 		});
 
-		// Shell execution
 		interp->register_function("shell", "parts:any...", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 		{
 			if (positional.empty())
@@ -368,7 +346,6 @@ namespace udon_script_builtins
 				return true;
 			}
 
-			// Concatenate all arguments with spaces
 			std::ostringstream command_builder;
 			for (size_t i = 0; i < positional.size(); i++)
 			{
@@ -378,7 +355,6 @@ namespace udon_script_builtins
 			}
 			std::string command = command_builder.str();
 
-			// Execute command and capture output
 			FILE* pipe = popen(command.c_str(), "r");
 			if (!pipe)
 			{
@@ -398,7 +374,6 @@ namespace udon_script_builtins
 			(void)exit_code; // Ignore exit code for now
 
 			std::string output = result.str();
-			// Remove trailing newline if present
 			if (!output.empty() && output.back() == '\n')
 				output.pop_back();
 
@@ -406,7 +381,6 @@ namespace udon_script_builtins
 			return true;
 		});
 
-		// String escape functions
 		interp->register_function("to_shellarg", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 		{
 			if (positional.size() != 1)
@@ -417,7 +391,6 @@ namespace udon_script_builtins
 			}
 			std::string s = value_to_string(positional[0]);
 
-			// Escape single quotes by replacing ' with '\'' and wrapping in single quotes
 			std::string escaped = "'";
 			for (char c : s)
 			{
@@ -442,7 +415,6 @@ namespace udon_script_builtins
 			}
 			std::string s = value_to_string(positional[0]);
 
-			// Escape HTML special characters
 			std::string escaped;
 			for (char c : s)
 			{
@@ -483,7 +455,6 @@ namespace udon_script_builtins
 			}
 			std::string s = value_to_string(positional[0]);
 
-			// Escape single quotes for SQL by doubling them
 			std::string escaped;
 			for (char c : s)
 			{
@@ -497,7 +468,6 @@ namespace udon_script_builtins
 			return true;
 		});
 
-		// Vector constructors
 		interp->register_function("vec2", "x:number, y:number", "vec2", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 		{
 			if (positional.size() != 2)
@@ -534,7 +504,6 @@ namespace udon_script_builtins
 			return true;
 		});
 
-		// Math functions
 		unary("sqrt", std::sqrt);
 		unary("abs", std::fabs);
 		unary("sin", std::sin);
@@ -557,7 +526,6 @@ namespace udon_script_builtins
 		binary("max", [](double a, double b)
 		{ return a > b ? a : b; });
 
-		// String functions
 		interp->register_function("len", "value:any", "s32", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 		{
 			if (positional.size() != 1)
@@ -575,6 +543,7 @@ namespace udon_script_builtins
 				out = make_int(0);
 			return true;
 		});
+		register_alias("array_len", "len");
 
 		interp->register_function("substr", "s:string, start:s32, count:s32", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 		{
@@ -639,7 +608,6 @@ namespace udon_script_builtins
 			return true;
 		});
 
-		// Type conversion
 		interp->register_function("to_s32", "value:any", "s32", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 		{
 			if (positional.size() != 1)

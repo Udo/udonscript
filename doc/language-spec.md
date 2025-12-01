@@ -84,8 +84,6 @@ var b = 10;
 var m = 1; var n = 2; print(to_string(m + n))
 ```
 
-Closing braces `}` also serve as implicit statement terminators, so you don't need a semicolon before a closing brace.
-
 ---
 
 ## Data Types
@@ -109,6 +107,7 @@ UdonScript supports the following data types:
 ### Complex Types
 
 - **`Array`** - Dynamic array/map structure (associative array)
+- **`Function`** - Callable value produced by function declarations or anonymous function expressions
 - **`VariableReference`** - Internal type for variable references
 
 ---
@@ -200,9 +199,14 @@ x || y  // Logical OR (short-circuit)
 ### Property Access
 
 ```javascript
-array.key       // Access property/key
-array.key = 10  // Set property/key
+obj:prop        // Array/map key access (safe)
+obj:prop = 10   // Set key
+value.method()  // Call built-in or user-defined method (dot is for methods)
 ```
+
+Colon access `obj:foo:bar` is equivalent to `obj["foo"]["bar"]` and returns `none` instead of raising errors when an intermediate value is missing or not an array/map.
+
+Square-bracket access is also safe: `obj["missing"]` and `obj[5]` yield `none` when the target cannot be indexed (mirroring PHP-style nullish access). Dot (`.`) is reserved for method calls: `"text".to_lower()`, `{x:1}.len()`.
 
 ---
 
@@ -349,6 +353,21 @@ function add(a: s32, b: s32) -> s32 {
 }
 ```
 
+### Anonymous Functions (Closures)
+
+Anonymous functions can be created as expressions using the same syntax as a normal function, but without a name. They capture visible locals by reference (mutations after creation are observed):
+
+```javascript
+var bias = 3
+var add_bias = function(x) {
+    return x + bias
+}
+bias = 100
+print(add_bias(4)) // prints 104
+```
+
+Closures are first-class values stored in variables, array/map properties, or returned from other functions. Any callable value can be invoked by name like a normal function call.
+
 ### Named Arguments
 
 Functions can be called with named arguments:
@@ -384,6 +403,17 @@ By convention, the entry point is the `main()` function:
 function main() {
     print("Hello, World!")
 }
+
+### Method Call Sugar
+
+You can call functions and built-ins using method syntax: `receiver.method(arg1, arg2)`. The receiver is automatically passed as the first positional argument to the target function. Examples:
+
+```javascript
+"Hello".to_lower()       // same as to_lower("Hello")
+{a: 1, b: 2}.len()       // same as len({a:1, b:2})
+```
+
+For arrays/maps, if a property with the same name exists and is a callable value, that property is invoked before any built-in or global function of the same name. If the property exists but is not callable, an error is raised.
 ```
 
 ---
@@ -415,6 +445,12 @@ Use the built-in `len()` function to get the size:
 
 ```javascript
 var count = len(arr)
+```
+
+Use `keys(arr)` or `arr.keys()` to get an array of key names:
+
+```javascript
+var names = keys(arr)
 ```
 
 ### Iteration

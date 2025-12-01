@@ -1,5 +1,5 @@
 #include "core/udonscript.h"
-#include "core/udonscript_internal.h"
+#include "core/udonscript-internal.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -57,7 +57,6 @@ std::vector<std::string> list_files(const std::string& directory, const std::str
 
 bool run_test(const TestCase& test, std::string& actual_output, std::string& error_msg)
 {
-	// Redirect stdout to capture output
 	std::ostringstream captured;
 	std::streambuf* old_cout = std::cout.rdbuf(captured.rdbuf());
 
@@ -103,7 +102,6 @@ bool run_test(const TestCase& test, std::string& actual_output, std::string& err
 
 	actual_output = captured.str();
 
-	// Trim trailing whitespace/newlines for comparison
 	while (!actual_output.empty() && (actual_output.back() == '\n' || actual_output.back() == '\r' || actual_output.back() == ' '))
 		actual_output.pop_back();
 
@@ -117,14 +115,12 @@ int main(int argc, char* argv[])
 	if (argc > 1)
 		test_dir = argv[1];
 
-	// Open report file for writing errors
 	std::ofstream report_file("tmp/testsuite.report");
 
 	std::cout << "UdonScript Test Runner\n";
 	std::cout << "======================\n";
 	std::cout << "Test directory: " << test_dir << "\n\n";
 
-	// Find all test files
 	std::vector<std::string> test_files = list_files(test_dir, ".udon");
 
 	if (test_files.empty())
@@ -135,7 +131,6 @@ int main(int argc, char* argv[])
 
 	std::vector<TestCase> tests;
 
-	// Load tests and their expected outputs
 	for (const auto& filename : test_files)
 	{
 		TestCase test;
@@ -147,7 +142,6 @@ int main(int argc, char* argv[])
 		if (file_exists(expected_path))
 		{
 			test.expected_output = load_file(expected_path);
-			// Trim trailing whitespace
 			while (!test.expected_output.empty() &&
 				   (test.expected_output.back() == '\n' ||
 					   test.expected_output.back() == '\r' ||
@@ -158,7 +152,6 @@ int main(int argc, char* argv[])
 		tests.push_back(test);
 	}
 
-	// Run tests
 	int passed = 0;
 	int failed = 0;
 	std::vector<std::string> failed_tests;
@@ -180,7 +173,6 @@ int main(int argc, char* argv[])
 		}
 		else if (test.expected_output.empty())
 		{
-			// No expected output file - just check it ran without error
 			std::cout << "[PASS] " << test.name << "\n";
 			passed++;
 		}
@@ -202,7 +194,6 @@ int main(int argc, char* argv[])
 		}
 	}
 
-	// Summary
 	std::cout << "\n";
 	std::cout << "======================\n";
 	std::cout << "Results: " << passed << " passed, " << failed << " failed out of " << tests.size() << " tests\n";
