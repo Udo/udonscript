@@ -165,12 +165,6 @@ test_results/
 core
 core.*
 
-# User-specific test programs
-src/programs/test*
-src/programs/scratch*
-src/programs/my*
-!src/programs/helloworld.cpp
-
 # Backup files
 *.bak
 *.backup
