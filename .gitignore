@@ -1,0 +1,195 @@
+# Compiled Object files
+*.o
+*.obj
+
+# Compiled executables
+bin/*
+!bin/.gitkeep
+
+# Intermediate build files
+tmp/*
+!tmp/.gitkeep
+
+# CMake build files
+build_cmake/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile.cmake
+*.cmake
+!CMakeLists.txt
+
+# Build directories
+build/
+Build/
+out/
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Compiled Static libraries
+*.a
+*.lib
+*.la
+*.lo
+
+# Fortran module files
+*.mod
+*.smod
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# macOS specific
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Linux specific
+*~
+.directory
+.Trash-*
+
+# Windows specific
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# IDE and Editor files
+# VS Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.VC.db
+*.VC.opendb
+
+# CLion
+.idea/
+cmake-build-*/
+
+# Xcode
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+*.xccheckout
+*.moved-aside
+DerivedData/
+*.hmap
+*.ipa
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# Vim
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+[._]s[a-rt-v][a-z]
+[._]ss[a-gi-z]
+[._]sw[a-p]
+Session.vim
+.netrwhist
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# Log files
+*.log
+
+# Test output files
+test_output/
+test_results/
+
+# Temporary script files
+*.tmp
+*.script.tmp
+
+# Package files
+*.tar
+*.tar.gz
+*.zip
+*.7z
+*.rar
+
+# Core dumps
+core
+core.*
+
+# User-specific test programs
+src/programs/test*
+src/programs/scratch*
+src/programs/my*
+!src/programs/helloworld.cpp
+
+# Backup files
+*.bak
+*.backup
+*.swp
+*.swo
+*~.nib
+
+# Tags files
+tags
+TAGS
+.tags
+.tags_sorted_by_file
+
+# ctags/cscope files
+cscope.files
+cscope.out
+cscope.in.out
+cscope.po.out
+
+# Documentation build artifacts
+doc/*.html
+doc/*.pdf

@@ -1,0 +1,17 @@
+// Test: Vector operations
+function main() {
+	var v2 = vec2(3.0, 4.0);
+	print("vec2:", to_string(v2));
+	
+	var v3 = vec3(1.0, 2.0, 3.0);
+	print("vec3:", to_string(v3));
+	
+	var v4 = vec4(1.0, 0.0, 0.0, 1.0);
+	print("vec4:", to_string(v4));
+	
+	var sum = v3 + vec3(10.0, 20.0, 30.0);
+	print("sum:", to_string(sum));
+	
+	var scaled = v3 * 2.0;
+	print("scaled:", to_string(scaled));
+}

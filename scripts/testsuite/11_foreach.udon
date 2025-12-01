@@ -1,0 +1,16 @@
+// Test: Foreach loop with key and value
+function main() {
+	var data = {a: 1, b: 2, c: 3};
+	var sum = 0;
+	foreach (var key, val in data) {
+		sum = sum + val;
+	}
+	print("sum:", sum);
+	
+	// Test with just key
+	var count = 0;
+	foreach (var k in data) {
+		count = count + 1;
+	}
+	print("count:", count);
+}

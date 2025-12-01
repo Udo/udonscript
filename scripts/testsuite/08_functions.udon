@@ -1,0 +1,16 @@
+// Test: Function calls and return values
+function add(a, b) {
+	return a + b;
+}
+
+function multiply(x, y) {
+	return x * y;
+}
+
+function main() {
+	var sum = add(5, 3);
+	var prod = multiply(4, 7);
+	print("sum:", sum);
+	print("product:", prod);
+	print("nested:", add(multiply(2, 3), 10));
+}

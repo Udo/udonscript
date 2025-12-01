@@ -1,0 +1,2159 @@
+#include "udonscript.h"
+#include "udonscript_internal.h"
+#include <cctype>
+#include <iostream>
+#include <sstream>
+#include <stack>
+#include <algorithm>
+#include <unordered_set>
+#include <cmath>
+#include <memory>
+#include <functional>
+
+using namespace udon_script_helpers;
+using namespace udon_script_builtins;
+
+thread_local UdonInterpreter* g_udon_current = nullptr;
+
+namespace
+{
+	using Value = UdonValue;
+	struct Parser
+	{
+		Parser(const std::vector<Token>& tokens,
+			std::unordered_map<std::string, std::vector<UdonInstruction>>& instructions_out,
+			std::unordered_map<std::string, std::vector<std::string>>& params_out,
+			std::unordered_map<std::string, std::vector<std::string>>& events_out,
+			std::vector<UdonInstruction>& global_init_out,
+			std::unordered_set<std::string>& globals_out,
+			const std::unordered_set<std::string>& chunk_globals_out)
+			: tokens(tokens), instructions(instructions_out), params(params_out), events(events_out), global_init(global_init_out), globals(globals_out), chunk_globals(chunk_globals_out)
+		{
+		}
+
+		CodeLocation parse()
+		{
+			CodeLocation ok{};
+			ok.has_error = false;
+			while (!is_end())
+			{
+				if (match_keyword("function"))
+				{
+					if (!parse_function())
+						return error_location;
+					continue;
+				}
+				if (match_keyword("var"))
+				{
+					if (!parse_global_var())
+						return error_location;
+					continue;
+				}
+				return make_error(peek(), "Expected 'function' or 'var'");
+			}
+			return ok;
+		}
+
+	  private:
+		const std::vector<Token>& tokens;
+		size_t current = 0;
+		CodeLocation error_location{};
+		std::unordered_map<std::string, std::vector<UdonInstruction>>& instructions;
+		std::unordered_map<std::string, std::vector<std::string>>& params;
+		std::unordered_map<std::string, std::vector<std::string>>& events;
+		std::vector<UdonInstruction>& global_init;
+		std::unordered_set<std::string>& globals;
+		const std::unordered_set<std::string>& chunk_globals;
+		struct LoopContext
+		{
+			std::vector<size_t> break_jumps;
+			std::vector<size_t> continue_jumps;
+			size_t continue_target = 0;
+			bool allow_continue = false;
+		};
+		std::vector<LoopContext> loop_stack;
+
+		bool is_end() const
+		{
+			return peek().type == Token::Type::EndOfFile;
+		}
+
+		const Token& peek() const
+		{
+			return tokens[current];
+		}
+
+		const Token& previous() const
+		{
+			return tokens[current - 1];
+		}
+
+		const Token& advance()
+		{
+			if (!is_end())
+				current++;
+			return previous();
+		}
+
+		bool check_symbol(const std::string& text) const
+		{
+			if (is_end())
+				return false;
+			const auto& t = peek();
+			return t.type == Token::Type::Symbol && t.text == text;
+		}
+
+		bool match_symbol(const std::string& text)
+		{
+			if (check_symbol(text))
+			{
+				advance();
+				return true;
+			}
+			return false;
+		}
+
+		bool match_keyword(const std::string& text)
+		{
+			if (is_end())
+				return false;
+			const auto& t = peek();
+			if (t.type == Token::Type::Keyword && t.text == text)
+			{
+				advance();
+				return true;
+			}
+			return false;
+		}
+
+		CodeLocation make_error(const Token& t, const std::string& msg)
+		{
+			error_location.has_error = true;
+			error_location.line = t.line;
+			error_location.column = t.column;
+			error_location.opt_error_message = msg;
+			return error_location;
+		}
+
+		bool expect_symbol(const std::string& sym, const std::string& message)
+		{
+			if (match_symbol(sym))
+				return true;
+			make_error(peek(), message);
+			return false;
+		}
+
+		bool expect_statement_terminator(const std::string& message)
+		{
+			if (match_symbol(";"))
+				return true;
+			if (check_symbol("}"))
+				return true; // allow omitting the semicolon right before a closing brace
+			// Allow omitting semicolon if there's a line break
+			if (current > 0 && peek().line > previous().line)
+				return true;
+			make_error(peek(), message);
+			return false;
+		}
+
+		bool is_declared(const std::unordered_set<std::string>& locals, const std::string& name) const
+		{
+			return locals.find(name) != locals.end() || globals.find(name) != globals.end() || chunk_globals.find(name) != chunk_globals.end();
+		}
+
+		bool parse_global_var()
+		{
+			if (peek().type != Token::Type::Identifier)
+				return !make_error(peek(), "Expected variable name").has_error;
+			const std::string name = advance().text;
+			if (globals.find(name) != globals.end())
+				return !make_error(previous(), "Global '" + name + "' already declared").has_error;
+			if (match_symbol(":"))
+				advance();
+			globals.insert(name);
+
+			if (match_symbol("="))
+			{
+				std::unordered_set<std::string> locals;
+				if (!parse_expression(global_init, locals))
+					return false;
+			}
+			else
+			{
+				emit(global_init, UdonInstruction::OpCode::PUSH_LITERAL, { make_none() });
+			}
+			emit(global_init, UdonInstruction::OpCode::STORE_VAR, { make_string(name) });
+			return expect_statement_terminator("Expected ';' after global variable declaration");
+		}
+
+		bool parse_function()
+		{
+			if (is_end())
+				return false;
+			std::string function_name;
+			bool is_event_handler = false;
+			std::string on_target;
+
+			auto maybe_event = [&](bool already_consumed_on)
+			{
+				if (!match_symbol(":"))
+					return !make_error(peek(), "Expected ':' after on").has_error;
+				if (peek().type != Token::Type::Identifier)
+					return !make_error(peek(), "Expected event name after on:").has_error;
+				on_target = advance().text;
+				is_event_handler = true;
+				if (!already_consumed_on)
+					function_name.clear();
+				return true;
+			};
+
+			if (peek().type == Token::Type::Identifier)
+			{
+				if (peek().text == "on" && tokens.size() > current + 1 && tokens[current + 1].type == Token::Type::Symbol && tokens[current + 1].text == ":")
+				{
+					advance(); // consume 'on'
+					if (!maybe_event(true))
+						return false;
+				}
+				else
+				{
+					function_name = advance().text;
+					if ((function_name == "on") && tokens.size() > current && tokens[current].type == Token::Type::Symbol && tokens[current].text == ":")
+					{
+						if (!maybe_event(true))
+							return false;
+						function_name.clear();
+					}
+					else if (!is_event_handler && tokens.size() > current + 1 && peek().type == Token::Type::Identifier && peek().text == "on" && tokens[current + 1].type == Token::Type::Symbol && tokens[current + 1].text == ":")
+					{
+						advance(); // consume 'on'
+						if (!maybe_event(true))
+							return false;
+					}
+				}
+			}
+			else if (match_keyword("on"))
+			{
+				if (!maybe_event(true))
+					return false;
+			}
+
+			if (!is_event_handler && (match_keyword("on") || match_symbol("on")))
+			{
+				if (!maybe_event(false))
+					return false;
+			}
+
+			if (function_name.empty())
+			{
+				function_name = "_anon_" + std::to_string(instructions.size());
+			}
+
+			if (!expect_symbol("(", "Expected '(' after function name"))
+				return false;
+
+			std::vector<std::string> param_names;
+			if (!match_symbol(")"))
+			{
+				do
+				{
+					if (peek().type != Token::Type::Identifier)
+						return !make_error(peek(), "Expected parameter name").has_error;
+					param_names.push_back(advance().text);
+					if (match_symbol(":"))
+					{
+						advance();
+					}
+				} while (match_symbol(","));
+				if (!expect_symbol(")", "Expected ')' after parameters"))
+					return false;
+			}
+
+			if (match_symbol("->"))
+			{
+				advance();
+			}
+
+			if (!expect_symbol("{", "Expected '{' to start function body"))
+				return false;
+
+			std::vector<UdonInstruction> body;
+			std::unordered_set<std::string> locals;
+			for (const auto& p : param_names)
+				locals.insert(p);
+
+			while (!is_end() && !match_symbol("}"))
+			{
+				if (!parse_statement(body, locals))
+					return false;
+			}
+			if (is_end() && (body.empty() || previous().text != "}"))
+			{
+				return !make_error(previous(), "Missing closing '}'").has_error;
+			}
+
+			instructions[function_name] = body;
+			params[function_name] = param_names;
+			if (is_event_handler)
+			{
+				events["on:" + on_target].push_back(function_name);
+			}
+			return true;
+		}
+
+		void emit(std::vector<UdonInstruction>& body, UdonInstruction::OpCode op, const std::vector<Value>& operands = {})
+		{
+			UdonInstruction i{};
+			i.opcode = op;
+			i.operands = operands;
+			body.push_back(i);
+		}
+
+		bool parse_block(std::vector<UdonInstruction>& body, std::unordered_set<std::string>& locals)
+		{
+			if (!expect_symbol("{", "Expected '{' to start block"))
+				return false;
+			while (!is_end() && !match_symbol("}"))
+			{
+				if (!parse_statement(body, locals))
+					return false;
+			}
+			if (is_end())
+				return !make_error(previous(), "Missing closing '}'").has_error;
+			return true;
+		}
+
+		bool parse_statement(std::vector<UdonInstruction>& body, std::unordered_set<std::string>& locals)
+		{
+			if (match_keyword("if"))
+			{
+				if (!expect_symbol("(", "Expected '(' after if"))
+					return false;
+				if (!parse_expression(body, locals))
+					return false;
+				if (!expect_symbol(")", "Expected ')' after if condition"))
+					return false;
+
+				size_t jmp_false_index = body.size();
+				emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+
+				if (!parse_block(body, locals))
+					return false;
+
+				size_t jmp_end_index = body.size();
+				emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
+
+				body[jmp_false_index].operands[0].s32_value = static_cast<s32>(body.size());
+
+				if (match_keyword("else"))
+				{
+					if (!parse_block(body, locals))
+						return false;
+				}
+				body[jmp_end_index].operands[0].s32_value = static_cast<s32>(body.size());
+				return true;
+			}
+
+			if (match_keyword("while"))
+			{
+				if (!expect_symbol("(", "Expected '(' after while"))
+					return false;
+				size_t cond_index = body.size();
+				if (!parse_expression(body, locals))
+					return false;
+				if (!expect_symbol(")", "Expected ')' after while condition"))
+					return false;
+
+				size_t jmp_false_index = body.size();
+				emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+
+				loop_stack.push_back({});
+				loop_stack.back().continue_target = static_cast<size_t>(cond_index);
+				loop_stack.back().allow_continue = true;
+				if (!parse_block(body, locals))
+					return false;
+				for (size_t ci : loop_stack.back().continue_jumps)
+					body[ci].operands[0].s32_value = static_cast<s32>(cond_index);
+				emit(body, UdonInstruction::OpCode::JUMP, { make_int(static_cast<s32>(cond_index)) });
+
+				body[jmp_false_index].operands[0].s32_value = static_cast<s32>(body.size());
+				for (size_t bi : loop_stack.back().break_jumps)
+					body[bi].operands[0].s32_value = static_cast<s32>(body.size());
+				loop_stack.pop_back();
+				return true;
+			}
+
+			if (match_keyword("for"))
+			{
+				if (!expect_symbol("(", "Expected '(' after for"))
+					return false;
+
+				if (!match_symbol(";"))
+				{
+					if (match_keyword("var"))
+					{
+						if (peek().type != Token::Type::Identifier)
+							return !make_error(peek(), "Expected variable name").has_error;
+						const std::string name = advance().text;
+						locals.insert(name);
+						if (match_symbol(":"))
+							advance();
+						if (match_symbol("="))
+						{
+							if (!parse_expression(body, locals))
+								return false;
+						}
+						else
+						{
+							emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_none() });
+						}
+						emit(body, UdonInstruction::OpCode::STORE_VAR, { make_string(name) });
+						if (!expect_symbol(";", "Expected ';' after for init"))
+							return false;
+					}
+					else
+					{
+						bool produced = false;
+						if (!parse_assignment_or_expression(body, locals, produced))
+							return false;
+						if (produced)
+							emit(body, UdonInstruction::OpCode::POP);
+						if (!expect_symbol(";", "Expected ';' after for init"))
+							return false;
+					}
+				}
+
+				size_t cond_index = body.size();
+				if (!match_symbol(";"))
+				{
+					if (!parse_expression(body, locals))
+						return false;
+					if (!expect_symbol(";", "Expected ';' after for condition"))
+						return false;
+				}
+				else
+				{
+					emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(1) });
+				}
+				size_t jmp_false_index = body.size();
+				emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+
+				std::vector<UdonInstruction> increment_code;
+				if (!match_symbol(")"))
+				{
+					bool produced = false;
+					if (!parse_assignment_or_expression(increment_code, locals, produced))
+						return false;
+					if (produced)
+						emit(increment_code, UdonInstruction::OpCode::POP);
+					if (!expect_symbol(")", "Expected ')' after for increment"))
+						return false;
+				}
+
+				loop_stack.push_back({});
+				loop_stack.back().allow_continue = true;
+				if (!parse_block(body, locals))
+					return false;
+				size_t continue_target = body.size();
+				for (size_t ci : loop_stack.back().continue_jumps)
+					body[ci].operands[0].s32_value = static_cast<s32>(continue_target);
+				body.insert(body.end(), increment_code.begin(), increment_code.end());
+				emit(body, UdonInstruction::OpCode::JUMP, { make_int(static_cast<s32>(cond_index)) });
+				body[jmp_false_index].operands[0].s32_value = static_cast<s32>(body.size());
+				for (size_t bi : loop_stack.back().break_jumps)
+					body[bi].operands[0].s32_value = static_cast<s32>(body.size());
+				loop_stack.pop_back();
+				return true;
+			}
+
+			if (match_keyword("foreach"))
+			{
+				if (!expect_symbol("(", "Expected '(' after foreach"))
+					return false;
+				bool declared = match_keyword("var");
+				if (peek().type != Token::Type::Identifier)
+					return !make_error(peek(), "Expected iterator variable name").has_error;
+				std::string key_name = advance().text;
+				if (declared)
+					locals.insert(key_name);
+
+				// Check for optional value variable: foreach (key, value in ...)
+				std::string value_name;
+				bool has_value = false;
+				if (match_symbol(","))
+				{
+					if (peek().type != Token::Type::Identifier)
+						return !make_error(peek(), "Expected value variable name after ','").has_error;
+					value_name = advance().text;
+					if (declared)
+						locals.insert(value_name);
+					has_value = true;
+				}
+
+				if (!match_keyword("in"))
+					return !make_error(peek(), "Expected 'in' in foreach").has_error;
+				std::string collection_tmp = "__foreach_coll_" + std::to_string(body.size());
+				std::string keys_tmp = "__foreach_keys_" + std::to_string(body.size());
+				std::string idx_tmp = "__foreach_i_" + std::to_string(body.size());
+				locals.insert(collection_tmp);
+				locals.insert(keys_tmp);
+				locals.insert(idx_tmp);
+
+				if (!parse_expression(body, locals))
+					return false;
+				emit(body, UdonInstruction::OpCode::STORE_VAR, { make_string(collection_tmp) });
+
+				emit(body, UdonInstruction::OpCode::LOAD_VAR, { make_string(collection_tmp) });
+				std::vector<Value> call_ops;
+				call_ops.push_back(make_string("array_keys"));
+				call_ops.push_back(make_int(1));
+				call_ops.push_back(make_string(""));
+				emit(body, UdonInstruction::OpCode::CALL, call_ops);
+				emit(body, UdonInstruction::OpCode::STORE_VAR, { make_string(keys_tmp) });
+
+				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(0) });
+				emit(body, UdonInstruction::OpCode::STORE_VAR, { make_string(idx_tmp) });
+
+				if (!expect_symbol(")", "Expected ')' after foreach header"))
+					return false;
+
+				size_t cond_index = body.size();
+				emit(body, UdonInstruction::OpCode::LOAD_VAR, { make_string(idx_tmp) });
+				emit(body, UdonInstruction::OpCode::LOAD_VAR, { make_string(keys_tmp) });
+				std::vector<Value> len_ops;
+				len_ops.push_back(make_string("array_len"));
+				len_ops.push_back(make_int(1));
+				len_ops.push_back(make_string(""));
+				emit(body, UdonInstruction::OpCode::CALL, len_ops);
+				emit(body, UdonInstruction::OpCode::LT);
+				size_t jmp_false_index = body.size();
+				emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+
+				// Get key from keys array
+				emit(body, UdonInstruction::OpCode::LOAD_VAR, { make_string(keys_tmp) });
+				emit(body, UdonInstruction::OpCode::LOAD_VAR, { make_string(idx_tmp) });
+				std::vector<Value> get_key_ops;
+				get_key_ops.push_back(make_string("array_get"));
+				get_key_ops.push_back(make_int(2));
+				get_key_ops.push_back(make_string(""));
+				get_key_ops.push_back(make_string(""));
+				emit(body, UdonInstruction::OpCode::CALL, get_key_ops);
+				emit(body, UdonInstruction::OpCode::STORE_VAR, { make_string(key_name) });
+
+				// If value variable specified, get value from collection
+				if (has_value)
+				{
+					emit(body, UdonInstruction::OpCode::LOAD_VAR, { make_string(collection_tmp) });
+					emit(body, UdonInstruction::OpCode::LOAD_VAR, { make_string(key_name) });
+					std::vector<Value> get_val_ops;
+					get_val_ops.push_back(make_string("array_get"));
+					get_val_ops.push_back(make_int(2));
+					get_val_ops.push_back(make_string(""));
+					get_val_ops.push_back(make_string(""));
+					emit(body, UdonInstruction::OpCode::CALL, get_val_ops);
+					emit(body, UdonInstruction::OpCode::STORE_VAR, { make_string(value_name) });
+				}
+
+				loop_stack.push_back({});
+				loop_stack.back().allow_continue = true;
+				if (!parse_block(body, locals))
+					return false;
+
+				emit(body, UdonInstruction::OpCode::LOAD_VAR, { make_string(idx_tmp) });
+				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(1) });
+				emit(body, UdonInstruction::OpCode::ADD);
+				emit(body, UdonInstruction::OpCode::STORE_VAR, { make_string(idx_tmp) });
+
+				size_t continue_target = body.size();
+				for (size_t ci : loop_stack.back().continue_jumps)
+					body[ci].operands[0].s32_value = static_cast<s32>(continue_target);
+				emit(body, UdonInstruction::OpCode::JUMP, { make_int(static_cast<s32>(cond_index)) });
+				body[jmp_false_index].operands[0].s32_value = static_cast<s32>(body.size());
+				for (size_t bi : loop_stack.back().break_jumps)
+					body[bi].operands[0].s32_value = static_cast<s32>(body.size());
+				loop_stack.pop_back();
+				return true;
+			}
+
+			if (match_keyword("switch"))
+			{
+				if (!expect_symbol("(", "Expected '(' after switch"))
+					return false;
+				std::string tmp_name = "__switch_val_" + std::to_string(body.size());
+				locals.insert(tmp_name);
+				if (!parse_expression(body, locals))
+					return false;
+				if (!expect_symbol(")", "Expected ')' after switch expression"))
+					return false;
+				emit(body, UdonInstruction::OpCode::STORE_VAR, { make_string(tmp_name) });
+				if (!expect_symbol("{", "Expected '{' after switch header"))
+					return false;
+
+				loop_stack.push_back({});
+				loop_stack.back().allow_continue = false;
+
+				bool has_default = false;
+				while (!is_end() && !check_symbol("}"))
+				{
+					if (match_keyword("case"))
+					{
+						if (peek().type != Token::Type::Number && peek().type != Token::Type::String && peek().type != Token::Type::Identifier && peek().type != Token::Type::Keyword)
+							return !make_error(peek(), "Expected literal after case").has_error;
+						Value case_val;
+						if (peek().type == Token::Type::Number)
+						{
+							const std::string num_text = advance().text;
+							case_val = (num_text.find('.') != std::string::npos)
+										   ? make_float(static_cast<f32>(std::stof(num_text)))
+										   : make_int(static_cast<s32>(std::stoi(num_text)));
+						}
+						else if (peek().type == Token::Type::String)
+						{
+							case_val = make_string(advance().text);
+						}
+						else
+						{
+							std::string kw = advance().text;
+							if (kw == "true")
+								case_val = make_bool(true);
+							else if (kw == "false")
+								case_val = make_bool(false);
+							else
+								case_val = make_string(kw);
+						}
+						if (!expect_symbol(":", "Expected ':' after case value"))
+							return false;
+
+						emit(body, UdonInstruction::OpCode::LOAD_VAR, { make_string(tmp_name) });
+						emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { case_val });
+						emit(body, UdonInstruction::OpCode::EQ);
+						size_t jz_index = body.size();
+						emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+
+						while (!is_end() && !check_symbol("}") && !(peek().type == Token::Type::Keyword && (peek().text == "case" || peek().text == "default")))
+						{
+							if (!parse_statement(body, locals))
+								return false;
+						}
+
+						size_t end_jump = body.size();
+						emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
+						body[jz_index].operands[0].s32_value = static_cast<s32>(body.size());
+						loop_stack.back().break_jumps.push_back(end_jump);
+					}
+					else if (match_keyword("default"))
+					{
+						if (has_default)
+							return !make_error(previous(), "Multiple default labels").has_error;
+						has_default = true;
+						if (!expect_symbol(":", "Expected ':' after default"))
+							return false;
+						while (!is_end() && !check_symbol("}") && !(peek().type == Token::Type::Keyword && (peek().text == "case")))
+						{
+							if (!parse_statement(body, locals))
+								return false;
+						}
+					}
+					else
+					{
+						return !make_error(peek(), "Expected case/default or '}' in switch").has_error;
+					}
+				}
+				if (!expect_symbol("}", "Expected '}' to close switch"))
+					return false;
+				for (size_t bi : loop_stack.back().break_jumps)
+					body[bi].operands[0].s32_value = static_cast<s32>(body.size());
+				loop_stack.pop_back();
+				return true;
+			}
+
+			if (match_keyword("var"))
+			{
+				if (peek().type != Token::Type::Identifier)
+					return !make_error(peek(), "Expected variable name").has_error;
+				const std::string name = advance().text;
+				locals.insert(name);
+				if (match_symbol(":"))
+				{
+					advance();
+				}
+
+				if (match_symbol("="))
+				{
+					if (!parse_expression(body, locals))
+						return false;
+				}
+				else
+				{
+					emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_none() });
+				}
+				emit(body, UdonInstruction::OpCode::STORE_VAR, { make_string(name) });
+				return expect_statement_terminator("Expected ';' after variable declaration");
+			}
+			if (match_keyword("return"))
+			{
+				bool has_expr = !(check_symbol(";") || check_symbol("}"));
+				if (has_expr)
+				{
+					if (!parse_expression(body, locals))
+						return false;
+				}
+				emit(body, UdonInstruction::OpCode::RETURN);
+				return expect_statement_terminator("Expected ';' after return");
+			}
+
+			if (match_keyword("break"))
+			{
+				if (loop_stack.empty())
+					return !make_error(previous(), "break outside of loop/switch").has_error;
+				size_t jmp_idx = body.size();
+				emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
+				loop_stack.back().break_jumps.push_back(jmp_idx);
+				return expect_statement_terminator("Expected ';' after break");
+			}
+
+			if (match_keyword("continue"))
+			{
+				if (loop_stack.empty() || !loop_stack.back().allow_continue)
+					return !make_error(previous(), "continue outside of loop").has_error;
+				size_t jmp_idx = body.size();
+				emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
+				loop_stack.back().continue_jumps.push_back(jmp_idx);
+				return expect_statement_terminator("Expected ';' after continue");
+			}
+
+			bool produced = false;
+			if (!parse_assignment_or_expression(body, locals, produced))
+				return false;
+			if (produced)
+				emit(body, UdonInstruction::OpCode::POP);
+			return expect_statement_terminator("Expected ';' after expression");
+		}
+
+		bool parse_expression(std::vector<UdonInstruction>& body, std::unordered_set<std::string>& locals)
+		{
+			return parse_or(body, locals);
+		}
+
+		bool parse_or(std::vector<UdonInstruction>& body, std::unordered_set<std::string>& locals)
+		{
+			if (!parse_and(body, locals))
+				return false;
+			while (match_symbol("||"))
+			{
+				emit(body, UdonInstruction::OpCode::TO_BOOL);
+				size_t jz_index = body.size();
+				emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_bool(true) });
+				size_t jmp_end = body.size();
+				emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
+				body[jz_index].operands[0].s32_value = static_cast<s32>(body.size());
+				if (!parse_and(body, locals))
+					return false;
+				emit(body, UdonInstruction::OpCode::TO_BOOL);
+				body[jmp_end].operands[0].s32_value = static_cast<s32>(body.size());
+			}
+			return true;
+		}
+
+		bool parse_and(std::vector<UdonInstruction>& body, std::unordered_set<std::string>& locals)
+		{
+			if (!parse_equality(body, locals))
+				return false;
+			while (match_symbol("&&"))
+			{
+				emit(body, UdonInstruction::OpCode::TO_BOOL);
+				size_t jz_index = body.size();
+				emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+				if (!parse_equality(body, locals))
+					return false;
+				emit(body, UdonInstruction::OpCode::TO_BOOL);
+				size_t jmp_end = body.size();
+				emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
+				body[jz_index].operands[0].s32_value = static_cast<s32>(body.size());
+				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_bool(false) });
+				body[jmp_end].operands[0].s32_value = static_cast<s32>(body.size());
+			}
+			return true;
+		}
+
+		bool parse_equality(std::vector<UdonInstruction>& body, std::unordered_set<std::string>& locals)
+		{
+			if (!parse_comparison(body, locals))
+				return false;
+			while (true)
+			{
+				if (match_symbol("=="))
+				{
+					if (!parse_comparison(body, locals))
+						return false;
+					emit(body, UdonInstruction::OpCode::EQ);
+				}
+				else if (match_symbol("!="))
+				{
+					if (!parse_comparison(body, locals))
+						return false;
+					emit(body, UdonInstruction::OpCode::NEQ);
+				}
+				else
+				{
+					break;
+				}
+			}
+			return true;
+		}
+
+		bool parse_comparison(std::vector<UdonInstruction>& body, std::unordered_set<std::string>& locals)
+		{
+			if (!parse_additive(body, locals))
+				return false;
+			while (true)
+			{
+				if (match_symbol("<"))
+				{
+					if (!parse_additive(body, locals))
+						return false;
+					emit(body, UdonInstruction::OpCode::LT);
+				}
+				else if (match_symbol(">"))
+				{
+					if (!parse_additive(body, locals))
+						return false;
+					emit(body, UdonInstruction::OpCode::GT);
+				}
+				else if (match_symbol("<="))
+				{
+					if (!parse_additive(body, locals))
+						return false;
+					emit(body, UdonInstruction::OpCode::LTE);
+				}
+				else if (match_symbol(">="))
+				{
+					if (!parse_additive(body, locals))
+						return false;
+					emit(body, UdonInstruction::OpCode::GTE);
+				}
+				else
+				{
+					break;
+				}
+			}
+			return true;
+		}
+
+		bool parse_assignment_or_expression(std::vector<UdonInstruction>& body, std::unordered_set<std::string>& locals, bool& produced_value)
+		{
+			if (peek().type == Token::Type::Identifier && tokens.size() > current + 1 && tokens[current + 1].type == Token::Type::Symbol)
+			{
+				const std::string name = advance().text;
+				std::string op = tokens[current].text;
+				if (op == "=" || op == "+=" || op == "-=" || op == "*=" || op == "/=")
+				{
+					if (!is_declared(locals, name))
+						return !make_error(previous(), "Undeclared variable '" + name + "'").has_error;
+					advance();
+					if (op != "=")
+						emit(body, UdonInstruction::OpCode::LOAD_VAR, { make_string(name) });
+					if (!parse_expression(body, locals))
+						return false;
+					if (op == "+=")
+						emit(body, UdonInstruction::OpCode::ADD);
+					else if (op == "-=")
+						emit(body, UdonInstruction::OpCode::SUB);
+					else if (op == "*=")
+						emit(body, UdonInstruction::OpCode::MUL);
+					else if (op == "/=")
+						emit(body, UdonInstruction::OpCode::DIV);
+					emit(body, UdonInstruction::OpCode::STORE_VAR, { make_string(name) });
+					produced_value = false;
+					return true;
+				}
+				current--; // rewind name consumption
+			}
+			produced_value = true;
+			return parse_expression(body, locals);
+		}
+
+		bool parse_additive(std::vector<UdonInstruction>& body, std::unordered_set<std::string>& locals)
+		{
+			if (!parse_multiplicative(body, locals))
+				return false;
+			while (true)
+			{
+				if (match_symbol("+"))
+				{
+					if (!parse_multiplicative(body, locals))
+						return false;
+					emit(body, UdonInstruction::OpCode::ADD);
+				}
+				else if (match_symbol("-"))
+				{
+					if (!parse_multiplicative(body, locals))
+						return false;
+					emit(body, UdonInstruction::OpCode::SUB);
+				}
+				else
+				{
+					break;
+				}
+			}
+			return true;
+		}
+
+		bool parse_multiplicative(std::vector<UdonInstruction>& body, std::unordered_set<std::string>& locals)
+		{
+			if (!parse_unary(body, locals))
+				return false;
+			while (true)
+			{
+				if (match_symbol("*"))
+				{
+					if (!parse_unary(body, locals))
+						return false;
+					emit(body, UdonInstruction::OpCode::MUL);
+				}
+				else if (match_symbol("/"))
+				{
+					if (!parse_unary(body, locals))
+						return false;
+					emit(body, UdonInstruction::OpCode::DIV);
+				}
+				else
+				{
+					break;
+				}
+			}
+			return true;
+		}
+
+		bool parse_unary(std::vector<UdonInstruction>& body, std::unordered_set<std::string>& locals)
+		{
+			if (match_symbol("-"))
+			{
+				if (!parse_unary(body, locals))
+					return false;
+				emit(body, UdonInstruction::OpCode::NEGATE);
+				return true;
+			}
+			if (match_symbol("!"))
+			{
+				if (!parse_unary(body, locals))
+					return false;
+				emit(body, UdonInstruction::OpCode::TO_BOOL);
+				emit(body, UdonInstruction::OpCode::LOGICAL_NOT);
+				return true;
+			}
+			if (match_symbol("++") || match_symbol("--"))
+			{
+				bool inc = previous().text == "++";
+				if (peek().type != Token::Type::Identifier)
+					return !make_error(peek(), "Expected identifier after increment").has_error;
+				std::string name = advance().text;
+				if (!is_declared(locals, name))
+					return !make_error(previous(), "Undeclared variable '" + name + "'").has_error;
+				emit(body, UdonInstruction::OpCode::LOAD_VAR, { make_string(name) });
+				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(1) });
+				emit(body, inc ? UdonInstruction::OpCode::ADD : UdonInstruction::OpCode::SUB);
+				emit(body, UdonInstruction::OpCode::STORE_VAR, { make_string(name) });
+				emit(body, UdonInstruction::OpCode::LOAD_VAR, { make_string(name) });
+				return true;
+			}
+			return parse_primary(body, locals);
+		}
+
+		bool parse_primary(std::vector<UdonInstruction>& body, std::unordered_set<std::string>& locals)
+		{
+			if (peek().type == Token::Type::Number)
+			{
+				const std::string num_text = advance().text;
+				if (num_text.find('.') != std::string::npos)
+				{
+					emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_float(static_cast<f32>(std::stof(num_text))) });
+				}
+				else
+				{
+					emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(static_cast<s32>(std::stoi(num_text))) });
+				}
+				return true;
+			}
+			if (peek().type == Token::Type::String)
+			{
+				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_string(advance().text) });
+				return true;
+			}
+			if (peek().type == Token::Type::Identifier)
+			{
+				Token ident = advance();
+				if (match_symbol("("))
+				{
+					std::vector<std::string> arg_names;
+					size_t arg_count = 0;
+					if (!match_symbol(")"))
+					{
+						do
+						{
+							std::string arg_name;
+							if (peek().type == Token::Type::Identifier && tokens.size() > current + 1 && tokens[current + 1].type == Token::Type::Symbol && tokens[current + 1].text == "=")
+							{
+								arg_name = advance().text;
+								advance(); // '='
+							}
+							if (!parse_expression(body, locals))
+								return false;
+							arg_names.push_back(arg_name);
+							arg_count++;
+						} while (match_symbol(","));
+						if (!expect_symbol(")", "Expected ')' after arguments"))
+							return false;
+					}
+
+					std::vector<Value> operands;
+					operands.push_back(make_string(ident.text));
+					operands.push_back(make_int(static_cast<s32>(arg_count)));
+					for (const auto& n : arg_names)
+						operands.push_back(make_string(n));
+					emit(body, UdonInstruction::OpCode::CALL, operands);
+					return true;
+				}
+
+				if (!is_declared(locals, ident.text))
+					return !make_error(previous(), "Undeclared variable '" + ident.text + "'").has_error;
+				emit(body, UdonInstruction::OpCode::LOAD_VAR, { make_string(ident.text) });
+				if (match_symbol("++") || match_symbol("--"))
+				{
+					bool inc = previous().text == "++";
+					if (!is_declared(locals, ident.text))
+						return !make_error(previous(), "Undeclared variable '" + ident.text + "'").has_error;
+					emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(1) });
+					emit(body, inc ? UdonInstruction::OpCode::ADD : UdonInstruction::OpCode::SUB);
+					emit(body, UdonInstruction::OpCode::STORE_VAR, { make_string(ident.text) });
+					emit(body, UdonInstruction::OpCode::LOAD_VAR, { make_string(ident.text) });
+					return true;
+				}
+				while (match_symbol("."))
+				{
+					if (peek().type != Token::Type::Identifier)
+						return !make_error(peek(), "Expected member name after '.'").has_error;
+					std::string member = advance().text;
+					if (match_symbol("("))
+					{
+						std::vector<std::string> arg_names;
+						size_t arg_count = 1; // receiver already on stack
+						arg_names.push_back("");
+						if (!match_symbol(")"))
+						{
+							do
+							{
+								std::string arg_name;
+								if (peek().type == Token::Type::Identifier && tokens.size() > current + 1 && tokens[current + 1].type == Token::Type::Symbol && tokens[current + 1].text == "=")
+								{
+									arg_name = advance().text;
+									advance(); // '='
+								}
+								if (!parse_expression(body, locals))
+									return false;
+								arg_names.push_back(arg_name);
+								arg_count++;
+							} while (match_symbol(","));
+							if (!expect_symbol(")", "Expected ')' after arguments"))
+								return false;
+						}
+						std::vector<Value> operands;
+						operands.push_back(make_string(member));
+						operands.push_back(make_int(static_cast<s32>(arg_count)));
+						for (const auto& n : arg_names)
+							operands.push_back(make_string(n));
+						emit(body, UdonInstruction::OpCode::CALL, operands);
+					}
+					else
+					{
+						emit(body, UdonInstruction::OpCode::GET_PROP, { make_string(member) });
+					}
+				}
+				while (match_symbol("["))
+				{
+					if (!parse_expression(body, locals))
+						return false;
+					if (!expect_symbol("]", "Expected ']' after index"))
+						return false;
+					emit(body, UdonInstruction::OpCode::GET_PROP, { make_string("[index]") });
+				}
+				return true;
+			}
+			if (match_symbol("["))
+			{
+				int count = 0;
+				if (match_symbol("]"))
+				{
+					std::vector<Value> ops;
+					ops.push_back(make_string("array"));
+					ops.push_back(make_int(0));
+					emit(body, UdonInstruction::OpCode::CALL, ops);
+					return true;
+				}
+
+				do
+				{
+					if (!parse_expression(body, locals))
+						return false;
+					count++;
+				} while (match_symbol(","));
+
+				if (!expect_symbol("]", "Expected ']' after array literal"))
+					return false;
+
+				std::vector<Value> ops;
+				std::string callee = "array";
+				if (count == 2)
+					callee = "Vector2";
+				else if (count == 3)
+					callee = "Vector3";
+				else if (count == 4)
+					callee = "Vector4";
+				ops.push_back(make_string(callee));
+				ops.push_back(make_int(count));
+				for (int i = 0; i < count; ++i)
+					ops.push_back(make_string(""));
+				emit(body, UdonInstruction::OpCode::CALL, ops);
+				return true;
+			}
+			if (peek().type == Token::Type::Keyword && (peek().text == "true" || peek().text == "false"))
+			{
+				const bool val = advance().text == "true";
+				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_bool(val) });
+				return true;
+			}
+			if (match_symbol("("))
+			{
+				if (!parse_expression(body, locals))
+					return false;
+				return expect_symbol(")", "Expected ')'");
+			}
+			if (match_symbol("{"))
+			{
+				// Object/map literal: {key: value, ...}
+				// PHP-style associative array with JS syntax
+
+				// Collect all key-value pairs
+				std::vector<std::string> keys;
+				std::vector<bool> values_parsed;
+
+				if (!match_symbol("}"))
+				{
+					do
+					{
+						// Get the key
+						std::string key;
+						if (peek().type == Token::Type::Identifier)
+						{
+							key = advance().text;
+						}
+						else if (peek().type == Token::Type::String)
+						{
+							key = advance().text;
+						}
+						else if (peek().type == Token::Type::Number)
+						{
+							key = advance().text;
+						}
+						else
+						{
+							return !make_error(peek(), "Expected property name").has_error;
+						}
+
+						if (!expect_symbol(":", "Expected ':' after property name"))
+							return false;
+
+						// Parse the value expression (leaves value on stack)
+						if (!parse_expression(body, locals))
+							return false;
+
+						keys.push_back(key);
+
+					} while (match_symbol(","));
+
+					if (!expect_symbol("}", "Expected '}' after object literal"))
+						return false;
+				}
+
+				// Now call __object_literal with all values, keys, and count on stack
+				// Stack currently has: [value_n, ..., value_1] (values in reverse order)
+				// Need to push: key_1, ..., key_n, count
+
+				// Push all keys onto stack
+				for (const auto& k : keys)
+					emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_string(k) });
+
+				// Push count
+				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(static_cast<s32>(keys.size())) });
+
+				// Call __object_literal with (values + keys + count) arguments
+				std::vector<Value> ops;
+				ops.push_back(make_string("__object_literal"));
+				ops.push_back(make_int(static_cast<s32>(keys.size() * 2 + 1))); // total arg count
+				// No named args
+
+				emit(body, UdonInstruction::OpCode::CALL, ops);
+				return true;
+			}
+			return !make_error(peek(), "Unexpected token in expression").has_error;
+		}
+	};
+
+	std::unordered_set<std::string> collect_top_level_globals(const std::vector<Token>& tokens)
+	{
+		std::unordered_set<std::string> names;
+		int depth = 0;
+		for (size_t i = 0; i + 1 < tokens.size(); ++i)
+		{
+			const Token& t = tokens[i];
+			if (t.type == Token::Type::Symbol)
+			{
+				if (t.text == "{")
+					depth++;
+				else if (t.text == "}")
+					depth = std::max(0, depth - 1);
+			}
+			if (depth == 0 && t.type == Token::Type::Keyword && t.text == "var" && tokens[i + 1].type == Token::Type::Identifier)
+			{
+				names.insert(tokens[i + 1].text);
+			}
+		}
+		return names;
+	}
+
+	bool pop_value(std::vector<Value>& stack, Value& out, CodeLocation& error)
+	{
+		if (stack.empty())
+		{
+			error.has_error = true;
+			error.opt_error_message = "Stack underflow";
+			return false;
+		}
+		out = stack.back();
+		stack.pop_back();
+		return true;
+	}
+
+} // namespace
+
+static bool get_property_value(const UdonValue& obj, const std::string& name, UdonValue& out)
+{
+	using namespace udon_script_helpers;
+	switch (obj.type)
+	{
+		case UdonValue::Type::Array:
+		{
+			if (!array_get(obj, name, out))
+				out = make_none();
+			return true;
+		}
+		default:
+			break;
+	}
+	return false;
+}
+static bool get_index_value(const UdonValue& obj, const UdonValue& index, UdonValue& out)
+{
+	using namespace udon_script_helpers;
+	if (obj.type == UdonValue::Type::Array)
+	{
+		if (!array_get(obj, key_from_value(index), out))
+			out = make_none();
+		return true;
+	}
+	if (obj.type == UdonValue::Type::String)
+	{
+		std::string s = obj.string_value;
+		s32 idx = static_cast<s32>(as_number(index));
+		if (idx >= 0 && static_cast<size_t>(idx) < s.size())
+			out = make_string(std::string(1, s[static_cast<size_t>(idx)]));
+		else
+			out = make_none();
+		return true;
+	}
+	if (obj.type == UdonValue::Type::Vector2 || obj.type == UdonValue::Type::Vector3 || obj.type == UdonValue::Type::Vector4)
+	{
+		s32 idx = static_cast<s32>(as_number(index));
+		if (idx == 0)
+			out = make_float(obj.type == UdonValue::Type::Vector2 ? obj.vec2_value.x : obj.type == UdonValue::Type::Vector3 ? obj.vec3_value.x
+																															: obj.vec4_value.x);
+		else if (idx == 1)
+			out = make_float(obj.type == UdonValue::Type::Vector2 ? obj.vec2_value.y : obj.type == UdonValue::Type::Vector3 ? obj.vec3_value.y
+																															: obj.vec4_value.y);
+		else if (idx == 2 && (obj.type == UdonValue::Type::Vector3 || obj.type == UdonValue::Type::Vector4))
+			out = make_float(obj.type == UdonValue::Type::Vector3 ? obj.vec3_value.z : obj.vec4_value.z);
+		else if (idx == 3 && obj.type == UdonValue::Type::Vector4)
+			out = make_float(obj.vec4_value.w);
+		else
+			out = make_none();
+		return true;
+	}
+	if (index.type == UdonValue::Type::String)
+	{
+		return get_property_value(obj, index.string_value, out);
+	}
+	return false;
+}
+
+UdonInterpreter::UdonInterpreter()
+{
+	register_builtins(this);
+}
+
+UdonInterpreter::~UdonInterpreter()
+{
+	for (auto* arr : heap_arrays)
+		delete arr;
+}
+
+UdonValue::ManagedArray* UdonInterpreter::allocate_array()
+{
+	auto* arr = new UdonValue::ManagedArray();
+	heap_arrays.push_back(arr);
+	return arr;
+}
+
+void UdonInterpreter::register_function(const std::string& name,
+	const std::string& arg_signature,
+	const std::string& return_type,
+	UdonBuiltinFunction fn)
+{
+	UdonBuiltinEntry entry;
+	entry.arg_signature = arg_signature;
+	entry.return_type = return_type;
+	entry.function = fn;
+	builtins[name] = entry;
+}
+
+std::vector<Token> UdonInterpreter::tokenize(const std::string& source_code)
+{
+	std::vector<Token> tokens;
+	u32 line = 1;
+	u32 column = 1;
+
+	size_t i = 0;
+	const size_t len = source_code.size();
+	int paren_depth = 0;
+	int bracket_depth = 0;
+	auto can_end_statement = [](const Token& t) -> bool
+	{
+		if (t.type == Token::Type::Identifier || t.type == Token::Type::Number || t.type == Token::Type::String)
+			return true;
+		if (t.type == Token::Type::Keyword && (t.text == "true" || t.text == "false" || t.text == "return" || t.text == "break" || t.text == "continue"))
+			return true;
+		if (t.type == Token::Type::Symbol && (t.text == ")" || t.text == "]" || t.text == ";"))
+			return true;
+		return false;
+	};
+
+	Token last_token{};
+	bool has_last_token = false;
+
+	auto push_token = [&](Token::Type type, const std::string& text, u32 l, u32 c)
+	{
+		Token t{};
+		t.type = type;
+		t.text = text;
+		t.line = l;
+		t.column = c;
+		tokens.push_back(t);
+		if (type == Token::Type::Symbol)
+		{
+			if (text == "(")
+				paren_depth++;
+			else if (text == ")")
+				paren_depth = std::max(0, paren_depth - 1);
+			else if (text == "[")
+				bracket_depth++;
+			else if (text == "]")
+				bracket_depth = std::max(0, bracket_depth - 1);
+		}
+		last_token = t;
+		has_last_token = true;
+	};
+
+	auto is_ident_start = [](char c)
+	{
+		return std::isalpha(static_cast<unsigned char>(c)) || c == '_';
+	};
+
+	auto is_ident_char = [](char c)
+	{
+		return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
+	};
+
+	while (i < len)
+	{
+		char c = source_code[i];
+		if (c == ' ' || c == '\t' || c == '\r')
+		{
+			i++;
+			column++;
+			continue;
+		}
+		if (c == '\n')
+		{
+			if (has_last_token && can_end_statement(last_token) && last_token.text != ";" && paren_depth == 0 && bracket_depth == 0)
+				push_token(Token::Type::Symbol, ";", line, column);
+			i++;
+			line++;
+			column = 1;
+			continue;
+		}
+
+		if (c == '/' && i + 1 < len && source_code[i + 1] == '/')
+		{
+			i += 2;
+			column += 2;
+			while (i < len && source_code[i] != '\n')
+			{
+				i++;
+				column++;
+			}
+			continue;
+		}
+		if (c == '/' && i + 1 < len && source_code[i + 1] == '*')
+		{
+			i += 2;
+			column += 2;
+			while (i + 1 < len && !(source_code[i] == '*' && source_code[i + 1] == '/'))
+			{
+				if (source_code[i] == '\n')
+				{
+					line++;
+					column = 1;
+				}
+				else
+				{
+					column++;
+				}
+				i++;
+			}
+			i += 2;
+			column += 2;
+			continue;
+		}
+
+		if (std::isdigit(static_cast<unsigned char>(c)))
+		{
+			u32 tok_line = line;
+			u32 tok_col = column;
+			size_t start = i;
+			while (i < len && (std::isdigit(static_cast<unsigned char>(source_code[i])) || source_code[i] == '.'))
+			{
+				i++;
+				column++;
+			}
+			push_token(Token::Type::Number, source_code.substr(start, i - start), tok_line, tok_col);
+			continue;
+		}
+
+		if (is_ident_start(c))
+		{
+			u32 tok_line = line;
+			u32 tok_col = column;
+			size_t start = i;
+			while (i < len && is_ident_char(source_code[i]))
+			{
+				i++;
+				column++;
+			}
+			std::string ident = source_code.substr(start, i - start);
+			std::string lower = ident;
+			for (auto& ch : lower)
+				ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+			if (lower == "function" || lower == "return" || lower == "var" || lower == "true" || lower == "false" || lower == "if" || lower == "else" || lower == "while" || lower == "for" || lower == "foreach" || lower == "in" || lower == "break" || lower == "continue" || lower == "switch" || lower == "case" || lower == "default")
+			{
+				push_token(Token::Type::Keyword, lower, tok_line, tok_col);
+			}
+			else
+			{
+				push_token(Token::Type::Identifier, ident, tok_line, tok_col);
+			}
+			continue;
+		}
+
+		if (c == '"')
+		{
+			u32 tok_line = line;
+			u32 tok_col = column;
+			i++;
+			column++;
+			std::string literal;
+			while (i < len && source_code[i] != '"')
+			{
+				if (source_code[i] == '\\' && i + 1 < len)
+				{
+					char esc = source_code[i + 1];
+					switch (esc)
+					{
+						case 'n':
+							literal.push_back('\n');
+							break;
+						case 't':
+							literal.push_back('\t');
+							break;
+						case '\\':
+							literal.push_back('\\');
+							break;
+						case '"':
+							literal.push_back('"');
+							break;
+						default:
+							literal.push_back(esc);
+							break;
+					}
+					i += 2;
+					column += 2;
+				}
+				else
+				{
+					literal.push_back(source_code[i]);
+					i++;
+					column++;
+				}
+			}
+			if (i < len && source_code[i] == '"')
+			{
+				i++;
+				column++;
+			}
+			push_token(Token::Type::String, literal, tok_line, tok_col);
+			continue;
+		}
+
+		u32 tok_line = line;
+		u32 tok_col = column;
+		std::string sym(1, c);
+		if (i + 1 < len)
+		{
+			char n = source_code[i + 1];
+			if ((c == '=' || c == '!' || c == '<' || c == '>') && n == '=')
+			{
+				sym = std::string() + c + "=";
+				i += 2;
+				column += 2;
+				push_token(Token::Type::Symbol, sym, tok_line, tok_col);
+				continue;
+			}
+			if (c == '-' && n == '>')
+			{
+				sym = "->";
+				i += 2;
+				column += 2;
+				push_token(Token::Type::Symbol, sym, tok_line, tok_col);
+				continue;
+			}
+			if ((c == '&' && n == '&') || (c == '|' && n == '|') || (c == '+' && n == '+') || (c == '-' && n == '-') || (c == '+' && n == '=') || (c == '-' && n == '=') || (c == '*' && n == '=') || (c == '/' && n == '='))
+			{
+				sym = std::string() + c + n;
+				i += 2;
+				column += 2;
+				push_token(Token::Type::Symbol, sym, tok_line, tok_col);
+				continue;
+			}
+		}
+		push_token(Token::Type::Symbol, sym, tok_line, tok_col);
+		i++;
+		column++;
+	}
+
+	Token eof{};
+	eof.type = Token::Type::EndOfFile;
+	eof.line = line;
+	eof.column = column;
+	tokens.push_back(eof);
+	return tokens;
+}
+
+void UdonInterpreter::seed_builtin_globals()
+{
+	declared_globals.insert("Entities");
+	declared_globals.insert("Materials");
+	declared_globals.insert("Meshes");
+	declared_globals.insert("Textures");
+}
+
+CodeLocation UdonInterpreter::compile(const std::string& source_code)
+{
+	instructions.clear();
+	function_params.clear();
+	event_handlers.clear();
+	globals.clear();
+	stack.clear();
+	declared_globals.clear();
+	global_init_counter = 0;
+	seed_builtin_globals();
+	return compile_append(source_code);
+}
+
+CodeLocation UdonInterpreter::compile_append(const std::string& source_code)
+{
+	seed_builtin_globals();
+	std::vector<Token> toks = tokenize(source_code);
+	std::vector<UdonInstruction> module_global_init;
+	std::unordered_set<std::string> chunk_globals = collect_top_level_globals(toks);
+	Parser parser(toks, instructions, function_params, event_handlers, module_global_init, declared_globals, chunk_globals);
+	CodeLocation res = parser.parse();
+	if (res.has_error)
+		return res;
+	if (!module_global_init.empty())
+	{
+		std::string init_fn = "__globals_init_" + std::to_string(global_init_counter++);
+		instructions[init_fn] = module_global_init;
+		function_params[init_fn] = {};
+		UdonValue dummy;
+		CodeLocation init_res = run(init_fn, {}, {}, dummy);
+		if (init_res.has_error)
+			return init_res;
+	}
+	return res;
+}
+
+CodeLocation UdonInterpreter::run(std::string function_name,
+	std::vector<UdonValue> args,
+	std::unordered_map<std::string, UdonValue> named_args,
+	UdonValue& return_value)
+{
+	struct Guard
+	{
+		UdonInterpreter* self;
+		UdonInterpreter* prev;
+		Guard(UdonInterpreter* s) : self(s), prev(g_udon_current)
+		{
+			g_udon_current = s;
+		}
+		~Guard()
+		{
+			g_udon_current = prev;
+		}
+	} guard(this);
+
+	CodeLocation ok{};
+	ok.has_error = false;
+
+	// Scene globals removed for standalone version
+
+	auto fn_it = instructions.find(function_name);
+	if (fn_it == instructions.end())
+	{
+		ok.has_error = true;
+		ok.opt_error_message = "Function '" + function_name + "' not found";
+		return ok;
+	}
+
+	auto param_it = function_params.find(function_name);
+	const std::vector<std::string> param_names = (param_it != function_params.end()) ? param_it->second : std::vector<std::string>();
+
+	for (const auto& kv : named_args)
+	{
+		if (std::find(param_names.begin(), param_names.end(), kv.first) == param_names.end())
+		{
+			ok.has_error = true;
+			ok.opt_error_message = "Unknown named argument '" + kv.first + "'";
+			return ok;
+		}
+	}
+
+	if (args.size() > param_names.size() && named_args.empty())
+	{
+		ok.has_error = true;
+		ok.opt_error_message = "Too many positional arguments for '" + function_name + "'";
+		return ok;
+	}
+
+	std::unordered_map<std::string, Value> locals;
+	size_t positional_index = 0;
+	for (const auto& name : param_names)
+	{
+		auto nit = named_args.find(name);
+		if (nit != named_args.end())
+		{
+			locals[name] = nit->second;
+		}
+		else if (positional_index < args.size())
+		{
+			locals[name] = args[positional_index++];
+		}
+		else
+		{
+			locals[name] = make_none();
+		}
+	}
+
+	std::vector<Value> eval_stack;
+	const auto& code = fn_it->second;
+
+	size_t ip = 0;
+	auto push_gc_root_and_collect = [&](const Value& v)
+	{
+		stack.push_back(v);
+		collect_garbage();
+		stack.pop_back();
+	};
+
+	while (ip < code.size())
+	{
+		const auto& instr = code[ip];
+		switch (instr.opcode)
+		{
+			case UdonInstruction::OpCode::PUSH_LITERAL:
+				if (!instr.operands.empty())
+					eval_stack.push_back(instr.operands[0]);
+				break;
+			case UdonInstruction::OpCode::LOAD_VAR:
+			{
+				const std::string name = !instr.operands.empty() ? instr.operands[0].string_value : "";
+				auto lit = locals.find(name);
+				if (lit != locals.end())
+				{
+					eval_stack.push_back(lit->second);
+				}
+				else
+				{
+					auto git = globals.find(name);
+					if (git != globals.end())
+						eval_stack.push_back(git->second);
+					else
+						eval_stack.push_back(make_none());
+				}
+				break;
+			}
+			case UdonInstruction::OpCode::STORE_VAR:
+			{
+				Value v;
+				if (!pop_value(eval_stack, v, ok))
+					return ok;
+				const std::string name = !instr.operands.empty() ? instr.operands[0].string_value : "";
+				if (locals.find(name) != locals.end())
+					locals[name] = v;
+				else
+					globals[name] = v;
+				break;
+			}
+			case UdonInstruction::OpCode::ADD:
+			case UdonInstruction::OpCode::SUB:
+			case UdonInstruction::OpCode::MUL:
+			case UdonInstruction::OpCode::DIV:
+			{
+				Value rhs;
+				Value lhs;
+				if (!pop_value(eval_stack, rhs, ok) || !pop_value(eval_stack, lhs, ok))
+					return ok;
+				Value result;
+				bool success = false;
+				if (instr.opcode == UdonInstruction::OpCode::ADD)
+					success = add_values(lhs, rhs, result);
+				else if (instr.opcode == UdonInstruction::OpCode::SUB)
+					success = sub_values(lhs, rhs, result);
+				else if (instr.opcode == UdonInstruction::OpCode::MUL)
+					success = mul_values(lhs, rhs, result);
+				else if (instr.opcode == UdonInstruction::OpCode::DIV)
+					success = div_values(lhs, rhs, result);
+				if (!success)
+				{
+					ok.has_error = true;
+					ok.opt_error_message = "Invalid operands for arithmetic";
+					return ok;
+				}
+				eval_stack.push_back(result);
+				break;
+			}
+			case UdonInstruction::OpCode::NEGATE:
+			{
+				Value v;
+				if (!pop_value(eval_stack, v, ok))
+					return ok;
+				if (is_numeric(v))
+				{
+					if (v.type == Value::Type::S32)
+						v.s32_value = -v.s32_value;
+					else
+						v.f32_value = -v.f32_value;
+				}
+				else if (is_vector(v))
+				{
+					if (v.type == Value::Type::Vector2)
+						v.vec2_value = v.vec2_value * -1.0f;
+					else if (v.type == Value::Type::Vector3)
+						v.vec3_value = v.vec3_value * -1.0f;
+					else
+						v.vec4_value = v.vec4_value * -1.0f;
+				}
+				else
+				{
+					ok.has_error = true;
+					ok.opt_error_message = "Cannot negate value";
+					return ok;
+				}
+				eval_stack.push_back(v);
+				break;
+			}
+			case UdonInstruction::OpCode::GET_PROP:
+			{
+				const std::string name = !instr.operands.empty() ? instr.operands[0].string_value : "";
+				Value prop;
+				bool success = false;
+				if (name == "[index]")
+				{
+					Value idx;
+					Value obj;
+					if (!pop_value(eval_stack, idx, ok))
+						return ok;
+					if (!pop_value(eval_stack, obj, ok))
+						return ok;
+					success = get_index_value(obj, idx, prop);
+				}
+				else
+				{
+					Value obj;
+					if (!pop_value(eval_stack, obj, ok))
+						return ok;
+					success = get_property_value(obj, name, prop);
+				}
+				if (!success)
+				{
+					ok.has_error = true;
+					ok.opt_error_message = "Invalid property access '" + name + "'";
+					return ok;
+				}
+				eval_stack.push_back(prop);
+				break;
+			}
+			case UdonInstruction::OpCode::EQ:
+			case UdonInstruction::OpCode::NEQ:
+			case UdonInstruction::OpCode::LT:
+			case UdonInstruction::OpCode::LTE:
+			case UdonInstruction::OpCode::GT:
+			case UdonInstruction::OpCode::GTE:
+			{
+				Value rhs;
+				Value lhs;
+				if (!pop_value(eval_stack, rhs, ok) || !pop_value(eval_stack, lhs, ok))
+					return ok;
+				Value result;
+				bool success = false;
+				if (instr.opcode == UdonInstruction::OpCode::EQ || instr.opcode == UdonInstruction::OpCode::NEQ)
+				{
+					success = equal_values(lhs, rhs, result);
+					if (instr.opcode == UdonInstruction::OpCode::NEQ)
+					{
+						result.s32_value = result.s32_value ? 0 : 1;
+					}
+				}
+				else
+				{
+					success = compare_values(lhs, rhs, instr.opcode, result);
+				}
+				if (!success)
+				{
+					ok.has_error = true;
+					ok.opt_error_message = "Invalid operands for comparison";
+					return ok;
+				}
+				eval_stack.push_back(result);
+				break;
+			}
+			case UdonInstruction::OpCode::JUMP:
+			{
+				if (instr.operands.empty())
+				{
+					ok.has_error = true;
+					ok.opt_error_message = "Malformed JUMP";
+					return ok;
+				}
+				ip = static_cast<size_t>(instr.operands[0].s32_value);
+				continue;
+			}
+			case UdonInstruction::OpCode::JUMP_IF_FALSE:
+			{
+				Value cond;
+				if (!pop_value(eval_stack, cond, ok))
+					return ok;
+				if (!is_truthy(cond))
+				{
+					if (instr.operands.empty())
+					{
+						ok.has_error = true;
+						ok.opt_error_message = "Malformed JUMP_IF_FALSE";
+						return ok;
+					}
+					ip = static_cast<size_t>(instr.operands[0].s32_value);
+					continue;
+				}
+				break;
+			}
+			case UdonInstruction::OpCode::TO_BOOL:
+			{
+				Value v;
+				if (!pop_value(eval_stack, v, ok))
+					return ok;
+				eval_stack.push_back(bool_value(is_truthy(v)));
+				break;
+			}
+			case UdonInstruction::OpCode::LOGICAL_NOT:
+			{
+				Value v;
+				if (!pop_value(eval_stack, v, ok))
+					return ok;
+				eval_stack.push_back(bool_value(!is_truthy(v)));
+				break;
+			}
+			case UdonInstruction::OpCode::CALL:
+			{
+				if (instr.operands.size() < 2)
+				{
+					ok.has_error = true;
+					ok.opt_error_message = "Malformed CALL instruction";
+					return ok;
+				}
+				const std::string callee = instr.operands[0].string_value;
+				const s32 arg_count = instr.operands[1].s32_value;
+				std::vector<std::string> arg_names;
+				for (size_t i = 2; i < instr.operands.size(); ++i)
+					arg_names.push_back(instr.operands[i].string_value);
+
+				std::vector<Value> call_args(static_cast<size_t>(arg_count));
+				std::vector<std::string> names(static_cast<size_t>(arg_count));
+				for (s32 idx = arg_count - 1; idx >= 0; --idx)
+				{
+					Value v;
+					if (!pop_value(eval_stack, v, ok))
+						return ok;
+					call_args[static_cast<size_t>(idx)] = v;
+					if (static_cast<size_t>(idx) < arg_names.size())
+						names[static_cast<size_t>(idx)] = arg_names[static_cast<size_t>(idx)];
+				}
+
+				std::vector<Value> positional;
+				std::unordered_map<std::string, Value> named;
+				for (size_t i = 0; i < call_args.size(); ++i)
+				{
+					if (!names[i].empty())
+						named[names[i]] = call_args[i];
+					else
+						positional.push_back(call_args[i]);
+				}
+
+				Value call_result;
+				CodeLocation inner_err{};
+				inner_err.has_error = false;
+
+				bool handled_builtin = handle_builtin(this, callee, positional, named, call_result, inner_err);
+				if (!handled_builtin)
+				{
+					auto fn = instructions.find(callee);
+					if (fn == instructions.end())
+					{
+						ok.has_error = true;
+						ok.opt_error_message = "Function '" + callee + "' not found";
+						return ok;
+					}
+					CodeLocation nested = run(callee, positional, named, call_result);
+					if (nested.has_error)
+						return nested;
+				}
+				eval_stack.push_back(call_result);
+				break;
+			}
+			case UdonInstruction::OpCode::RETURN:
+			{
+				if (!eval_stack.empty())
+				{
+					return_value = eval_stack.back();
+				}
+				else
+				{
+					return_value = make_none();
+				}
+				push_gc_root_and_collect(return_value);
+				return ok;
+			}
+			case UdonInstruction::OpCode::POP:
+			{
+				Value tmp;
+				if (!pop_value(eval_stack, tmp, ok))
+					return ok;
+				break;
+			}
+			case UdonInstruction::OpCode::NOP:
+			case UdonInstruction::OpCode::HALT:
+				return_value = make_none();
+				push_gc_root_and_collect(return_value);
+				return ok;
+		}
+		++ip;
+	}
+
+	return_value = make_none();
+	push_gc_root_and_collect(return_value);
+	return ok;
+}
+
+void UdonInterpreter::clear()
+{
+	instructions.clear();
+	function_params.clear();
+	event_handlers.clear();
+	globals.clear();
+	stack.clear();
+	for (auto* arr : heap_arrays)
+		delete arr;
+	heap_arrays.clear();
+}
+
+std::string UdonInterpreter::dump_instructions() const
+{
+	std::ostringstream ss;
+	for (const auto& fn : instructions)
+	{
+		ss << "function " << fn.first << "(";
+		auto pit = function_params.find(fn.first);
+		if (pit != function_params.end())
+		{
+			for (size_t i = 0; i < pit->second.size(); ++i)
+			{
+				if (i)
+					ss << ", ";
+				ss << pit->second[i];
+			}
+		}
+		ss << ")\n";
+
+		const auto& body = fn.second;
+		for (size_t i = 0; i < body.size(); ++i)
+		{
+			const auto& instr = body[i];
+			ss << "  [" << i << "] ";
+			switch (instr.opcode)
+			{
+				case UdonInstruction::OpCode::PUSH_LITERAL:
+					ss << "PUSH " << (instr.operands.empty() ? "<none>" : value_to_string(instr.operands[0]));
+					break;
+				case UdonInstruction::OpCode::LOAD_VAR:
+					ss << "LOAD " << (instr.operands.empty() ? "<anon>" : instr.operands[0].string_value);
+					break;
+				case UdonInstruction::OpCode::STORE_VAR:
+					ss << "STORE " << (instr.operands.empty() ? "<anon>" : instr.operands[0].string_value);
+					break;
+				case UdonInstruction::OpCode::ADD:
+					ss << "ADD";
+					break;
+				case UdonInstruction::OpCode::SUB:
+					ss << "SUB";
+					break;
+				case UdonInstruction::OpCode::MUL:
+					ss << "MUL";
+					break;
+				case UdonInstruction::OpCode::DIV:
+					ss << "DIV";
+					break;
+				case UdonInstruction::OpCode::NEGATE:
+					ss << "NEG";
+					break;
+				case UdonInstruction::OpCode::EQ:
+					ss << "EQ";
+					break;
+				case UdonInstruction::OpCode::NEQ:
+					ss << "NEQ";
+					break;
+				case UdonInstruction::OpCode::LT:
+					ss << "LT";
+					break;
+				case UdonInstruction::OpCode::LTE:
+					ss << "LTE";
+					break;
+				case UdonInstruction::OpCode::GT:
+					ss << "GT";
+					break;
+				case UdonInstruction::OpCode::GTE:
+					ss << "GTE";
+					break;
+				case UdonInstruction::OpCode::JUMP:
+					ss << "JUMP " << (instr.operands.empty() ? -1 : instr.operands[0].s32_value);
+					break;
+				case UdonInstruction::OpCode::JUMP_IF_FALSE:
+					ss << "JZ " << (instr.operands.empty() ? -1 : instr.operands[0].s32_value);
+					break;
+				case UdonInstruction::OpCode::TO_BOOL:
+					ss << "TO_BOOL";
+					break;
+				case UdonInstruction::OpCode::LOGICAL_NOT:
+					ss << "NOT";
+					break;
+				case UdonInstruction::OpCode::GET_PROP:
+					ss << "GET_PROP " << (instr.operands.empty() ? "<name>" : instr.operands[0].string_value);
+					break;
+				case UdonInstruction::OpCode::CALL:
+				{
+					std::string target = instr.operands.size() > 0 ? instr.operands[0].string_value : "<anon>";
+					s32 argc = instr.operands.size() > 1 ? instr.operands[1].s32_value : 0;
+					ss << "CALL " << target << " argc=" << argc;
+					if (instr.operands.size() > 2)
+					{
+						ss << " [";
+						for (size_t j = 2; j < instr.operands.size(); ++j)
+						{
+							if (j > 2)
+								ss << ", ";
+							ss << instr.operands[j].string_value;
+						}
+						ss << "]";
+					}
+					break;
+				}
+				case UdonInstruction::OpCode::RETURN:
+					ss << "RETURN";
+					break;
+				case UdonInstruction::OpCode::POP:
+					ss << "POP";
+					break;
+				case UdonInstruction::OpCode::NOP:
+					ss << "NOP";
+					break;
+				case UdonInstruction::OpCode::HALT:
+					ss << "HALT";
+					break;
+			}
+			ss << "\n";
+		}
+		ss << "\n";
+	}
+	return ss.str();
+}
+
+static void mark_value(UdonValue& v)
+{
+	if (v.type == UdonValue::Type::Array && v.array_map)
+	{
+		if (v.array_map->marked)
+			return;
+		v.array_map->marked = true;
+		for (auto& kv : v.array_map->values)
+			mark_value(kv.second);
+		return;
+	}
+}
+
+void UdonInterpreter::collect_garbage()
+{
+	for (auto* arr : heap_arrays)
+		arr->marked = false;
+
+	for (auto& kv : globals)
+		mark_value(kv.second);
+	for (auto& v : stack)
+		mark_value(v);
+
+	std::vector<UdonValue::ManagedArray*> survivors;
+	survivors.reserve(heap_arrays.size());
+	for (auto* arr : heap_arrays)
+	{
+		if (arr->marked)
+			survivors.push_back(arr);
+		else
+			delete arr;
+	}
+	heap_arrays.swap(survivors);
+}

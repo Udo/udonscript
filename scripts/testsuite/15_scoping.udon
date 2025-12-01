@@ -1,0 +1,13 @@
+// Test: Variable scoping
+var global_var = 100;
+
+function test_scope() {
+	var local_var = 50;
+	return global_var + local_var;
+}
+
+function main() {
+	print("global:", global_var);
+	print("result:", test_scope());
+	print("global_after:", global_var);
+}

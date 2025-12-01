@@ -1,0 +1,26 @@
+// Test: typeof builtin function
+function main() {
+	// Test basic types
+	print(typeof(42))
+	print(typeof(3.14))
+	print(typeof("hello"))
+	print(typeof(true))
+	print(typeof(false))
+	
+	// Test vectors
+	print(typeof(vec2(1, 2)))
+	print(typeof(vec3(1, 2, 3)))
+	print(typeof(vec4(1, 2, 3, 4)))
+	
+	// Test arrays/objects
+	var obj = {x: 10, y: 20}
+	print(typeof(obj))
+	
+	// Test with variables
+	var x = 100
+	var y = 2.5
+	var name = "test"
+	print(typeof(x))
+	print(typeof(y))
+	print(typeof(name))
+}

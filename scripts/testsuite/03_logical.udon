@@ -1,0 +1,13 @@
+// Test: Logical operators
+function main() {
+	var t = true;
+	var f = false;
+	print("and_tt:", t && t);
+	print("and_tf:", t && f);
+	print("and_ff:", f && f);
+	print("or_tt:", t || t);
+	print("or_tf:", t || f);
+	print("or_ff:", f || f);
+	print("not_t:", !t);
+	print("not_f:", !f);
+}

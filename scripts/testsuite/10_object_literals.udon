@@ -1,0 +1,13 @@
+// Test: Object literals
+function main() {
+	var obj = {x: 10, y: 20};
+	print("x:", obj.x);
+	print("y:", obj.y);
+	
+	var empty = {};
+	print("empty_len:", len(empty));
+	
+	var mixed = {0: "zero", name: "test", 1: "one"};
+	print("mixed[0]:", mixed[0]);
+	print("mixed.name:", mixed.name);
+}

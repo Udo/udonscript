@@ -1,0 +1,11 @@
+// Test: Comparison operators
+function main() {
+	var a = 10;
+	var b = 5;
+	print("eq:", a == b);
+	print("neq:", a != b);
+	print("lt:", a < b);
+	print("lte:", a <= b);
+	print("gt:", a > b);
+	print("gte:", a >= b);
+}

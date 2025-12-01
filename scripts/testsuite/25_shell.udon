@@ -1,0 +1,26 @@
+// Test: Shell command execution and escape functions
+function main() {
+	// Test simple echo
+	var result = shell("echo 'test output'")
+	print(result)
+	
+	// Test multi-arg shell
+	var multi = shell("echo", "hello", "world")
+	print(multi)
+	
+	// Test to_shellarg
+	var safe_shell = to_shellarg("test's string")
+	print("shellarg:", safe_shell)
+	
+	// Test to_htmlsafe
+	var safe_html = to_htmlsafe("<div>Test & 'data'</div>")
+	print("htmlsafe:", safe_html)
+	
+	// Test to_sqlarg
+	var safe_sql = to_sqlarg("O'Reilly's book")
+	print("sqlarg:", safe_sql)
+	
+	// Test command with numbers
+	var calc = shell("echo $((5 + 3))")
+	print("calc:", calc)
+}

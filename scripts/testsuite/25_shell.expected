@@ -1,0 +1,6 @@
+test output
+hello world
+shellarg: 'test'\''s string'
+htmlsafe: &lt;div&gt;Test &amp; &#39;data&#39;&lt;/div&gt;
+sqlarg: O''Reilly''s book
+calc: 8

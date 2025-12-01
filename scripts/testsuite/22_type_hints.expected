@@ -1,0 +1,10 @@
+x: 42
+y: 3.14
+name: UdonScript
+active: true
+a: none
+b: none
+total: 15
+i: 0
+i: 1
+i: 2

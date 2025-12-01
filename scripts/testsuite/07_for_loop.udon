@@ -1,0 +1,6 @@
+// Test: For loop
+function main() {
+	for (var i = 0; i < 5; i = i + 1) {
+		print("i:", i);
+	}
+}

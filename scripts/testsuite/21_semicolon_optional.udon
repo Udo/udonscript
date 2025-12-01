@@ -1,0 +1,21 @@
+// Test: Semicolons should be optional at line breaks
+function main() {
+	var x = 10
+	var y = 20
+	var z = x + y
+	print("sum:", z)
+	
+	if (x > 5) {
+		print("greater")
+	}
+	
+	var i = 0
+	while (i < 3) {
+		print("i:", i)
+		i = i + 1
+	}
+	
+	for (var j = 0; j < 2; j = j + 1) {
+		print("j:", j)
+	}
+}

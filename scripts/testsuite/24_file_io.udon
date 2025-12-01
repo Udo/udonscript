@@ -1,0 +1,29 @@
+// Test: File I/O functions
+function main() {
+	var test_file = "tmp/test_file_io.txt"
+	var test_content = "Line 1\nLine 2\nLine 3"
+	
+	// Test write_entire_file
+	write_entire_file(test_file, test_content)
+	
+	// Test read_entire_file
+	var content = read_entire_file(test_file)
+	print(content)
+	
+	// Test file_size
+	var size = file_size(test_file)
+	print("size:", size)
+	
+	// Test file_time (just check it returns a number)
+	var mtime = file_time(test_file)
+	print("has_time:", typeof(mtime))
+	
+	// Test overwrite
+	write_entire_file(test_file, "Updated content")
+	var new_content = read_entire_file(test_file)
+	print(new_content)
+	
+	// Test file_size after overwrite
+	var new_size = file_size(test_file)
+	print("new_size:", new_size)
+}

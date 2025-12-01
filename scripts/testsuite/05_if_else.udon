@@ -1,0 +1,23 @@
+// Test: If-else statements
+function main() {
+	var x = 10;
+	if (x > 5) {
+		print("greater");
+	}
+	
+	if (x < 5) {
+		print("less");
+	} else {
+		print("not less");
+	}
+	
+	if (x < 5) {
+		print("less");
+	} else {
+		if (x == 10) {
+			print("equal");
+		} else {
+			print("other");
+		}
+	}
+}

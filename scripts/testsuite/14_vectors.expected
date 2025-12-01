@@ -1,0 +1,5 @@
+vec2: vec2(3,4)
+vec3: vec3(1,2,3)
+vec4: vec4(1,0,0,1)
+sum: vec3(11,22,33)
+scaled: vec3(2,4,6)

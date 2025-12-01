@@ -1,0 +1,162 @@
+// Fibonacci Number Calculator
+// Demonstrates recursion, iteration, and performance comparison
+
+// Recursive implementation (simple but slow for large n)
+function fibonacci_recursive(n) {
+    if (n <= 1) {
+        return n
+    }
+    return fibonacci_recursive(n - 1) + fibonacci_recursive(n - 2)
+}
+
+// Iterative implementation (much faster)
+function fibonacci_iterative(n) {
+    if (n <= 1) {
+        return n
+    }
+    
+    var prev = 0
+    var curr = 1
+    
+    for (var i = 2; i <= n; i = i + 1) {
+        var next = prev + curr
+        prev = curr
+        curr = next
+    }
+    
+    return curr
+}
+
+// Calculate multiple fibonacci numbers
+function fibonacci_sequence(count) {
+    print("First " + to_string(count) + " Fibonacci numbers:")
+    
+    for (var i = 0; i < count; i = i + 1) {
+        var fib = fibonacci_iterative(i)
+        print("  F(" + to_string(i) + ") = " + to_string(fib))
+    }
+}
+
+// Check if a number is in the fibonacci sequence
+function is_fibonacci(num) {
+    var a = 0
+    var b = 1
+    
+    if (num == 0 || num == 1) {
+        return true
+    }
+    
+    while (b < num) {
+        var temp = a + b
+        a = b
+        b = temp
+    }
+    
+    return b == num
+}
+
+// Find the golden ratio approximation using fibonacci
+function golden_ratio_approximation(iterations) {
+    if (iterations < 2) {
+        return 1.0
+    }
+    
+    var fn = fibonacci_iterative(iterations)
+    var fn_minus_1 = fibonacci_iterative(iterations - 1)
+    
+    return to_f32(fn) / to_f32(fn_minus_1)
+}
+
+function main() {
+    print("=== Fibonacci Number Calculator ===")
+    print("")
+    
+    // Display sequence
+    fibonacci_sequence(15)
+    print("")
+    
+    // Test specific numbers
+    print("=== Individual Calculations ===")
+    var n = 20
+    var result = fibonacci_iterative(n)
+    print("F(" + to_string(n) + ") = " + to_string(result))
+    
+    n = 30
+    result = fibonacci_iterative(n)
+    print("F(" + to_string(n) + ") = " + to_string(result))
+    print("")
+    
+    // Check if numbers are fibonacci
+    print("=== Fibonacci Number Check ===")
+    var test1 = 13
+    var test2 = 14
+    var test3 = 21
+    var test4 = 34
+    var test5 = 100
+    
+    var is_fib = is_fibonacci(test1)
+    var status = "NOT"
+    if (is_fib) {
+        status = "IS"
+    }
+    print(to_string(test1) + " " + status + " a Fibonacci number")
+    
+    is_fib = is_fibonacci(test2)
+    status = "NOT"
+    if (is_fib) {
+        status = "IS"
+    }
+    print(to_string(test2) + " " + status + " a Fibonacci number")
+    
+    is_fib = is_fibonacci(test3)
+    status = "NOT"
+    if (is_fib) {
+        status = "IS"
+    }
+    print(to_string(test3) + " " + status + " a Fibonacci number")
+    
+    is_fib = is_fibonacci(test4)
+    status = "NOT"
+    if (is_fib) {
+        status = "IS"
+    }
+    print(to_string(test4) + " " + status + " a Fibonacci number")
+    
+    is_fib = is_fibonacci(test5)
+    status = "NOT"
+    if (is_fib) {
+        status = "IS"
+    }
+    print(to_string(test5) + " " + status + " a Fibonacci number")
+    print("")
+    
+    // Golden ratio approximation
+    print("=== Golden Ratio Approximation ===")
+    print("The golden ratio (φ) ≈ 1.618033988749...")
+    print("")
+    
+    for (var i = 5; i <= 20; i = i + 5) {
+        var ratio = golden_ratio_approximation(i)
+        print("F(" + to_string(i) + ") / F(" + to_string(i - 1) + ") = " + to_string(ratio))
+    }
+    print("")
+    
+    // Comparison of implementations (small numbers only for recursive)
+    print("=== Implementation Comparison ===")
+    var small_n = 10
+    var rec_result = fibonacci_recursive(small_n)
+    var iter_result = fibonacci_iterative(small_n)
+    
+    print("Recursive F(" + to_string(small_n) + ") = " + to_string(rec_result))
+    print("Iterative F(" + to_string(small_n) + ") = " + to_string(iter_result))
+    
+    if (rec_result == iter_result) {
+        print("✓ Both methods agree!")
+    }
+    print("")
+    
+    print("Note: Use iterative method for n > 30")
+    print("      Recursive method is exponentially slow!")
+    
+    return result
+}

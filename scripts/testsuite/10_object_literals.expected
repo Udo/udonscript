@@ -1,0 +1,5 @@
+x: 10
+y: 20
+empty_len: 0
+mixed[0]: zero
+mixed.name: test

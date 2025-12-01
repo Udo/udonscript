@@ -1,0 +1,23 @@
+// Test: Switch statement
+function test_switch(value) {
+	switch (value) {
+		case 1:
+			print("one");
+			break;
+		case 2:
+			print("two");
+			break;
+		case 3:
+			print("three");
+			break;
+		default:
+			print("other");
+			break;
+	}
+}
+
+function main() {
+	test_switch(1);
+	test_switch(2);
+	test_switch(99);
+}

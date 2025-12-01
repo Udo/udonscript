@@ -1,0 +1,8 @@
+and_tt: true
+and_tf: false
+and_ff: false
+or_tt: true
+or_tf: true
+or_ff: false
+not_t: false
+not_f: true

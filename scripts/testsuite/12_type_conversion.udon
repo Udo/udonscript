@@ -1,0 +1,9 @@
+// Test: Type conversion functions
+function main() {
+	print("to_s32:", to_s32("42"));
+	print("to_f32:", to_f32("3.14"));
+	print("to_string:", to_string(123));
+	print("to_bool_true:", to_bool("true"));
+	print("to_bool_false:", to_bool("false"));
+	print("to_bool_num:", to_bool(1));
+}

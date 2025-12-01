@@ -1,0 +1,6 @@
+to_s32: 42
+to_f32: 3.14
+to_string: 123
+to_bool_true: true
+to_bool_false: false
+to_bool_num: true
