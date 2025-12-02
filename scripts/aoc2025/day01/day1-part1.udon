@@ -46,113 +46,59 @@ Following these rotations would cause the dial to move as follows:
 
 Because the dial points at 0 a total of three times during this process, the password in this example is 3. */
 
-// Parse a rotation string like "L68" or "R48"
-function parse_rotation(rotation_str) {
-    var direction = substr(rotation_str, 0, 1)
-    var distance = to_s32(substr(rotation_str, 1, len(rotation_str) - 1))
-    
-    return {
-        direction: direction,
-        distance: distance
-    }
-}
+var test_instructions = 'L68
+L30
+R48
+L5
+R60
+L55
+L1
+L99
+R14
+L82'.split("\n")
 
-// Apply a rotation to the current position
-function apply_rotation(position, rotation) {
-    var new_pos = position
-    
-    if (rotation:direction == "L")
-        new_pos = position - rotation:distance
-    else if (rotation:direction == "R")
-        new_pos = position + rotation:distance
-    
-    // Wrap around the 0-99 dial
-    while (new_pos < 0)
-        new_pos = new_pos + 100
-    while (new_pos >= 100)
-        new_pos = new_pos - 100
-    
-    return new_pos
-}
-
-// Solve the puzzle with given rotations
-function solve_safe(rotations) {
-    var position = 50  // Starting position
+function solve(instructions) {
+    var position = 50
     var zero_count = 0
     
-    print("Starting position: " + to_string(position))
-    print("")
-    
-    for (var i = 0; i < len(rotations); i = i + 1) {
-        var rotation_str = rotations[i]
+    for (var i = 0; i < len(instructions); i = i + 1) {
+        var inst = instructions[to_string(i)]
+        var direction = substr(inst, 0, 1)
+        var distance = to_s32(substr(inst, 1))
         
-        // Skip empty lines
-        if (len(rotation_str) > 0) {
-            var rotation = parse_rotation(rotation_str)
-            var old_pos = position
-            
-            position = apply_rotation(position, rotation)
-            
-            print("Dial rotated " + rotation_str + " from " + to_string(old_pos) + " to " + to_string(position))
-            
-            if (position == 0) {
-                zero_count = zero_count + 1
+        if (direction == "L") {
+            position = (position - distance) % 100
+            if (position < 0) {
+                position = position + 100
             }
+        } else if (direction == "R") {
+            position = (position + distance) % 100
+        }
+        
+        if (position == 0) {
+            zero_count = zero_count + 1
         }
     }
-    
-    print("")
-    print("Final position: " + to_string(position))
-    print("Number of times dial pointed at 0: " + to_string(zero_count))
     
     return zero_count
 }
 
 function main() {
-    print("=== Advent of Code 2025 - Day 1: Safe Combination ===")
-    print("")
+    print("=== Day 1: Safe Combination ===")
     
-    // Example from the problem description
-    var example_rotations = {
-        0: "L68",
-        1: "L30",
-        2: "R48",
-        3: "L5",
-        4: "R60",
-        5: "L55",
-        6: "L1",
-        7: "L99",
-        8: "R14",
-        9: "L82"
+    // Test with example
+    var test_result = solve(test_instructions)
+    print("Test result: " + test_result + " (expected: 3)")
+    
+    // Solve with actual input
+    var input_lines = read_entire_file("scripts/aoc2025/day01/input.txt").split("\n")
+    var actual_instructions = []
+    foreach (var _, line in input_lines) {
+        if (len(trim(line)) != 0) {
+            actual_instructions.push(trim(line))
+        }
     }
     
-    print("=== Example Input ===")
-    var password = solve_safe(example_rotations)
-    print("")
-    print("Password: " + to_string(password))
-    print("")
-    
-    // Try to read actual puzzle input if it exists
-    var input_file = "scripts/aoc2025/day01/input.txt"
-    
-    // Check if file exists by trying to get its size
-    var has_input = false
-    var file_content = ""
-    
-    // Try to read the file (will fail gracefully if it doesn't exist)
-    if (file_size(input_file) > 0) {
-        has_input = true
-        file_content = read_entire_file(input_file)
-    }
-    
-    if (has_input) {
-        print("=== Actual Puzzle Input ===")
-        var lines = split(file_content, "\n")
-        
-        var actual_password = solve_safe(lines)
-        print("")
-        print("Actual Password: " + to_string(actual_password))
-    }
-    
-    return password
+    var result = solve(actual_instructions)
+    print("Password (number of times dial points to 0): " + result)
 }

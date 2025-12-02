@@ -1200,14 +1200,51 @@ namespace udon_script_builtins
 				return true;
 			}
 			std::string s = value_to_string(positional[0]);
+			s32 str_len = static_cast<s32>(s.size());
 			s32 start = static_cast<s32>(as_number(positional[1]));
-			s32 count = positional.size() == 3 ? static_cast<s32>(as_number(positional[2])) : static_cast<s32>(s.size());
-			if (start < 0 || start >= static_cast<s32>(s.size()))
+
+			if (start < 0)
+			{
+				start = str_len + start;
+				if (start < 0)
+				{
+					out = make_string("");
+					return true;
+				}
+			}
+
+			if (start >= str_len)
 			{
 				out = make_string("");
 				return true;
 			}
-			out = make_string(s.substr(start, count));
+
+			if (positional.size() == 3)
+			{
+				s32 length = static_cast<s32>(as_number(positional[2]));
+
+				if (length < 0)
+				{
+					length = str_len - start + length;
+					if (length < 0)
+					{
+						out = make_string("");
+						return true;
+					}
+				}
+
+				if (start + length > str_len)
+				{
+					length = str_len - start;
+				}
+
+				out = make_string(s.substr(start, length));
+			}
+			else
+			{
+				out = make_string(s.substr(start));
+			}
+
 			return true;
 		});
 

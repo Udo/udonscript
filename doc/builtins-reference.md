@@ -513,21 +513,29 @@ var size = len({a=1, b=2})    // size = 2
 
 ### `substr(s, start, count)`
 
-Extracts a substring from a string.
+Extracts a substring from a string. Behavior matches PHP's `substr()` function.
 
 **Parameters:**
 - `s: string` - Source string
 - `start: s32` - Starting index (0-based)
+  - Positive: offset from beginning
+  - Negative: offset from end of string
 - `count: s32` - Number of characters (optional, defaults to rest of string)
+  - Positive: number of characters to extract
+  - Negative: omit this many characters from the end
+  - If omitted: extract to end of string
 
-**Returns:** `string` - Substring
+**Returns:** `string` - Substring (empty string if out of bounds)
 
 **Example:**
 ```javascript
 var s = "Hello, World!"
-var sub1 = substr(s, 0, 5)   // sub1 = "Hello"
-var sub2 = substr(s, 7, 5)   // sub2 = "World"
-var sub3 = substr(s, 7)      // sub3 = "World!" (to end)
+var sub1 = substr(s, 0, 5)    // sub1 = "Hello"
+var sub2 = substr(s, 7, 5)    // sub2 = "World"
+var sub3 = substr(s, 7)       // sub3 = "World!" (to end)
+var sub4 = substr(s, -6)      // sub4 = "World!" (negative offset)
+var sub5 = substr(s, 0, -7)   // sub5 = "Hello," (negative length)
+var sub6 = substr(s, -6, -1)  // sub6 = "World" (both negative)
 ```
 
 ### `to_upper(s)`

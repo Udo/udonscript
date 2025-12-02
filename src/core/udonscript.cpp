@@ -512,11 +512,10 @@ namespace
 				if (!parse_statement(body, fn_ctx))
 					return false;
 			}
-			if (is_end() && (body.empty() || previous().text != "}"))
+			if (is_end() && previous().text != "}")
 			{
 				return !make_error(previous(), "Missing closing '}'").has_error;
 			}
-
 			instructions[function_name] = body;
 			params[function_name] = param_names;
 			param_slots[function_name] = fn_ctx.param_slot_indices;
@@ -1496,6 +1495,12 @@ namespace
 						return false;
 					emit(body, UdonInstruction::OpCode::DIV);
 				}
+				else if (match_symbol("%"))
+				{
+					if (!parse_unary(body, ctx))
+						return false;
+					emit(body, UdonInstruction::OpCode::MOD);
+				}
 				else
 				{
 					break;
@@ -1701,11 +1706,10 @@ namespace
 					return false;
 				}
 			}
-			if (is_end() && (fn_body.empty() || previous().text != "}"))
+			if (is_end() && previous().text != "}")
 			{
 				return !make_error(previous(), "Missing closing '}'").has_error;
 			}
-
 			std::string fn_name = "__lambda_" + std::to_string(lambda_counter++);
 			instructions[fn_name] = fn_body;
 			params[fn_name] = param_names;
@@ -1951,7 +1955,7 @@ namespace
 				emit(body, UdonInstruction::OpCode::CALL, ops);
 				return parse_postfix(body, ctx);
 			}
-			return !make_error(peek(), "Unexpected token in expression").has_error;
+			return !make_error(peek(), "Unexpected token '" + peek().text + "' in expression").has_error;
 		}
 	};
 
@@ -2299,6 +2303,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 			case UdonInstruction::OpCode::SUB:
 			case UdonInstruction::OpCode::MUL:
 			case UdonInstruction::OpCode::DIV:
+			case UdonInstruction::OpCode::MOD:
 			{
 				auto op = [&](const Value& lhs, const Value& rhs, Value& out) -> bool
 				{
@@ -2308,7 +2313,9 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 						return udon_script_helpers::sub_values(lhs, rhs, out);
 					if (instr.opcode == UdonInstruction::OpCode::MUL)
 						return udon_script_helpers::mul_values(lhs, rhs, out);
-					return udon_script_helpers::div_values(lhs, rhs, out);
+					if (instr.opcode == UdonInstruction::OpCode::DIV)
+						return udon_script_helpers::div_values(lhs, rhs, out);
+					return udon_script_helpers::mod_values(lhs, rhs, out);
 				};
 				if (!do_binary(op))
 					return ok;
@@ -3710,6 +3717,9 @@ std::string UdonInterpreter::dump_instructions() const
 					break;
 				case UdonInstruction::OpCode::DIV:
 					ss << "DIV";
+					break;
+				case UdonInstruction::OpCode::MOD:
+					ss << "MOD";
 					break;
 				case UdonInstruction::OpCode::NEGATE:
 					ss << "NEG";

@@ -100,6 +100,7 @@ struct UdonInstruction
 		SUB,
 		MUL,
 		DIV,
+		MOD,
 		NEGATE,
 		EQ,
 		NEQ,

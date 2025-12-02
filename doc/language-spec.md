@@ -177,6 +177,7 @@ x + y   // Addition
 x - y   // Subtraction
 x * y   // Multiplication
 x / y   // Division
+x % y   // Modulo (remainder)
 -x      // Negation
 ```
 

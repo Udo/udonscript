@@ -317,4 +317,15 @@ namespace udon_script_helpers
 		return true;
 	}
 
+	bool mod_values(const UdonValue& lhs, const UdonValue& rhs, UdonValue& out)
+	{
+		if (!is_numeric(lhs) || !is_numeric(rhs))
+			return false;
+		const double r = as_number(rhs);
+		if (r == 0.0)
+			return false;
+		out = wrap_number(fmod(as_number(lhs), r), lhs, rhs);
+		return true;
+	}
+
 } // namespace udon_script_helpers
