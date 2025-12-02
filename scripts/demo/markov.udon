@@ -1,0 +1,62 @@
+// Demo: Simple Markov chain text generator
+
+function build_model(text, order) {
+    var model = {}
+    var tokens = split(text, " ")
+    for (var i = 0; i + order < len(tokens); i = i + 1) {
+        var key = ""
+        for (var k = 0; k < order; k = k + 1) {
+            if (k > 0) key = key + " "
+            key = key + tokens[i + k]
+        }
+        var next = tokens[i + order]
+        if (model[key] == none) model[key] = {}
+        var bucket = model[key]
+        if (bucket[next] == none) bucket[next] = 0
+        bucket[next] = bucket[next] + 1
+        model[key] = bucket
+    }
+    return(model)
+}
+
+function choose_next(bucket) {
+    var keys = keys(bucket)
+    var best = ""
+    var best_count = -1
+    for (var i = 0; i < len(keys); i = i + 1) {
+        var w = bucket[keys[i]]
+        if (w > best_count) {
+            best_count = w
+            best = keys[i]
+        }
+    }
+    return(best)
+}
+
+function generate(model, order, seed_text, count) {
+    var tokens = split(seed_text, " ")
+    var output = tokens
+    for (var i = 0; i < count; i = i + 1) {
+        var start = len(output) - order
+        if (start < 0) start = 0
+        var key_tokens = {}
+        for (var k = 0; k < order; k = k + 1) {
+            key_tokens[k] = output[start + k]
+        }
+        var key = join(key_tokens, " ")
+        var bucket = model[key]
+        if (bucket == none) break
+        var next = choose_next(bucket)
+        output[len(output)] = next
+    }
+    return(join(output, " "))
+}
+
+function main() {
+    print("=== Markov Demo ===")
+    var text = "one fish two fish red fish blue fish one fish red fish lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur excepteur sint occaecat cupidatat non proident sunt in culpa qui officia deserunt mollit anim id est laborum"
+    var order = 2
+    var model = build_model(text, order)
+    var result = generate(model, order, "one fish", 10)
+    print(result)
+}

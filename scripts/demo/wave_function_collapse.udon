@@ -1,0 +1,198 @@
+// Sample dungeon to learn rules from (10x6)
+var sample = {
+    0: "##########",
+    1: "#....##..#",
+    2: "#.##.##..#",
+    3: "#....##..#",
+    4: "#.######.#",
+    5: "##########"
+}
+
+function build_rules(lines) {
+    var rules = {}
+    var h = len(lines)
+    var w = len(lines[0])
+    for (var y = 0; y < h; y = y + 1) {
+        var row = lines[y]
+        for (var x = 0; x < w; x = x + 1) {
+            var ch = substr(row, x, 1)
+            if (rules[ch] == none) {
+                rules[ch] = {north: {}, south: {}, east: {}, west: {}}
+            }
+            var tile = rules[ch]
+            if (y > 0) {
+                var above = substr(lines[y - 1], x, 1)
+                var north = tile:north
+                if (north == none) north = {}
+                north[above] = 1
+                tile:north = north
+            }
+            if (y + 1 < h) {
+                var below = substr(lines[y + 1], x, 1)
+                var south = tile:south
+                if (south == none) south = {}
+                south[below] = 1
+                tile:south = south
+            }
+            if (x > 0) {
+                var left = substr(row, x - 1, 1)
+                var west = tile:west
+                if (west == none) west = {}
+                west[left] = 1
+                tile:west = west
+            }
+            if (x + 1 < w) {
+                var right = substr(row, x + 1, 1)
+                var east = tile:east
+                if (east == none) east = {}
+                east[right] = 1
+                tile:east = east
+            }
+            rules[ch] = tile
+        }
+    }
+    return(rules)
+}
+
+function compatible(ch, dir, neighbor, rules) {
+    if (rules[ch] == none) return(true)
+    var allowed = rules[ch][dir]
+    if (allowed == none) return(true)
+    return(allowed[neighbor] != none)
+}
+
+function cell_entropy(cell) {
+    return(len(keys(cell)))
+}
+
+function collapse(grid, x, y) {
+    var candidates = grid[y][x]
+    var ks = keys(candidates)
+    if (len(ks) == 0) return(false)
+    var choice = ks[floor(rand() * len(ks))]
+    var new_cell = {}
+    new_cell[choice] = 1
+    var row = grid[y]
+    row[x] = new_cell
+    grid[y] = row
+    return(true)
+}
+
+function propagate(grid, width, height, rules) {
+    var queue = {}
+    var qi = 0
+    // seed all cells
+    for (var y = 0; y < height; y = y + 1) {
+        for (var x = 0; x < width; x = x + 1) {
+            queue[len(queue)] = {x: x, y: y}
+        }
+    }
+    while (qi < len(queue)) {
+        var item = queue[qi]
+        qi = qi + 1
+        var x = item:x
+        var y = item:y
+        var cell = grid[y][x]
+        var dirs = {
+            0: {dx: 0, dy: -1, dir: "north"},
+            1: {dx: 0, dy: 1, dir: "south"},
+            2: {dx: -1, dy: 0, dir: "west"},
+            3: {dx: 1, dy: 0, dir: "east"}
+        }
+        for (var d = 0; d < len(dirs); d = d + 1) {
+            var dir = dirs[d]
+            var nx = x + dir:dx
+            var ny = y + dir:dy
+            if (nx < 0 || ny < 0 || nx >= width || ny >= height)
+                continue
+            var neighbor = grid[ny][nx]
+            var new_neighbor = {}
+            var neighbor_keys = keys(neighbor)
+            for (var ni = 0; ni < len(neighbor_keys); ni = ni + 1) {
+                var nk = neighbor_keys[ni]
+                var ok = false
+                var cell_keys = keys(cell)
+                for (var ci = 0; ci < len(cell_keys); ci = ci + 1) {
+                    var ck = cell_keys[ci]
+                    var opp = "north"
+                    if (dir:dir == "north") opp = "south"
+                    else if (dir:dir == "south") opp = "north"
+                    else if (dir:dir == "east") opp = "west"
+                    else opp = "east"
+                    if (compatible(ck, dir:dir, nk, rules) && compatible(nk, opp, ck, rules)) {
+                        ok = true
+                        break
+                    }
+                }
+                if (ok) new_neighbor[nk] = 1
+            }
+            if (len(keys(new_neighbor)) < len(neighbor_keys) && len(keys(new_neighbor)) > 0) {
+                var nrow = grid[ny]
+                nrow[nx] = new_neighbor
+                grid[ny] = nrow
+                queue[len(queue)] = {x: nx, y: ny}
+            }
+        }
+    }
+    return(true)
+}
+
+function lowest_entropy(grid, width, height) {
+    var best = -1
+    var bx = -1
+    var by = -1
+    for (var y = 0; y < height; y = y + 1) {
+        for (var x = 0; x < width; x = x + 1) {
+            var e = cell_entropy(grid[y][x])
+            if (e > 1 && (best == -1 || e < best)) {
+                best = e
+                bx = x
+                by = y
+            }
+        }
+    }
+    return({x: bx, y: by, e: best})
+}
+
+function render(grid, width, height) {
+    for (var y = 0; y < height; y = y + 1) {
+        var line = ""
+        for (var x = 0; x < width; x = x + 1) {
+            var ks = keys(grid[y][x])
+            var k = ks[0]
+            line = line + k
+        }
+        print(line)
+    }
+}
+
+function main() {
+    print("=== WFC Dungeon Demo ===")
+    var rules = build_rules(sample)
+    var width = 20
+    var height = 12
+    var allchars = keys(rules)
+    var grid = {}
+    for (var y = 0; y < height; y = y + 1) {
+        var row = {}
+        for (var x = 0; x < width; x = x + 1) {
+            var cell = {}
+            for (var i = 0; i < len(allchars); i = i + 1)
+                cell[allchars[i]] = 1
+            row[x] = cell
+        }
+        grid[y] = row
+    }
+
+    var iterations = 0
+    while (true) {
+        var pick = lowest_entropy(grid, width, height)
+        if (pick:e == -1) break // solved
+        if (!collapse(grid, pick:x, pick:y)) break
+        if (!propagate(grid, width, height, rules)) break
+        iterations = iterations + 1
+        if (iterations > width * height * 8) break
+    }
+
+    render(grid, width, height)
+}

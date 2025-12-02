@@ -1,0 +1,41 @@
+// Demo: File IO, maps, and sorting
+
+function count_words(text) {
+    var freq = {}
+    var words = split(to_lower(text), " ")
+    for (var i = 0; i < len(words); i = i + 1) {
+        var w = words[i]
+        if (len(w) == 0)
+            continue
+        if (freq[w] == none)
+            freq[w] = 0
+        freq[w] = freq[w] + 1
+    }
+    return(freq)
+}
+
+function main() {
+    var path = "scripts/demo/word_freq.txt"
+    // Ensure file exists with sample content
+    write_entire_file(path, "Hello hello world world world demo demo")
+
+    var text = read_entire_file(path)
+    var freq = count_words(text)
+
+    print("=== Word Frequency Demo ===")
+    var keys = keys(freq)
+    // Simple bubble-sort by frequency descending
+    for (var i = 0; i < len(keys); i = i + 1) {
+        for (var j = i + 1; j < len(keys); j = j + 1) {
+            if (freq[keys[j]] > freq[keys[i]]) {
+                var tmp = keys[i]
+                keys[i] = keys[j]
+                keys[j] = tmp
+            }
+        }
+    }
+    for (var k = 0; k < len(keys); k = k + 1) {
+        var key = keys[k]
+        print(key + ": " + to_string(freq[key]))
+    }
+}

@@ -122,6 +122,8 @@ struct UdonInstruction
 
 	OpCode opcode;
 	std::vector<UdonValue> operands;
+	u32 line = 0;
+	u32 column = 0;
 };
 
 /* // Example code, typed, with optionally named arguments 

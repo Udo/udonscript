@@ -27,6 +27,13 @@ This compiles the core library and all programs in `src/programs/`:
 - `testrunner` - Automated test suite runner
 - `dump` - Compile-only tool that prints decoded bytecode for debugging
 
+### Useful Directories
+
+- `src/core/` - Interpreter core
+- `src/programs/` - Host integration examples
+- `scripts/testsuite/` - Automated tests
+- `scripts/demo/` - Small demo scripts (FFI, IO, closures, math)
+
 ### Hello World
 
 ```javascript

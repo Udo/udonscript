@@ -1,0 +1,90 @@
+// Demo: Simple Naive Bayes text classifier
+
+// Build per-class word counts and totals
+function train(docs) {
+    var model = {
+        vocab: {},
+        class_counts: {},
+        word_counts: {},
+        total_docs: 0
+    }
+    var vocab = model["vocab"]
+    var class_counts = model:class_counts
+    var word_counts = model:word_counts
+
+    for (var i = 0; i < len(docs); i = i + 1) {
+        var doc = docs[i]
+        var label = doc:label
+        var text = doc:text
+        if (class_counts[label] == none) class_counts[label] = 0
+        class_counts[label] = class_counts[label] + 1
+        model:total_docs = model:total_docs + 1
+        if (word_counts[label] == none) word_counts[label] = {}
+        var bucket = word_counts[label]
+        var words = split(to_lower(text), " ")
+        for (var w = 0; w < len(words); w = w + 1) {
+            var tok = words[w]
+            if (len(tok) == 0) continue
+            vocab[tok] = 1
+            if (bucket[tok] == none) bucket[tok] = 0
+            bucket[tok] = bucket[tok] + 1
+        }
+        word_counts[label] = bucket
+    }
+
+    model["vocab"] = vocab
+    model:class_counts = class_counts
+    model:word_counts = word_counts
+    return(model)
+}
+
+function classify(model, text) {
+    var best_label = ""
+    var best_logp = -9999999
+    var vocab_size = len(keys(model:vocab))
+    var words = split(to_lower(text), " ")
+    var class_counts = model:class_counts
+    var word_counts = model:word_counts
+    var class_keys = keys(class_counts)
+    for (var ci = 0; ci < len(class_keys); ci = ci + 1) {
+        var label = class_keys[ci]
+        var prior = to_f32(class_counts[label]) / to_f32(model:total_docs)
+        var bucket = word_counts[label]
+        var total_words = 0
+        var bucket_keys = keys(bucket)
+        for (var bi = 0; bi < len(bucket_keys); bi = bi + 1)
+            total_words = total_words + bucket[bucket_keys[bi]]
+        var logp = log(prior)
+        for (var w = 0; w < len(words); w = w + 1) {
+            var tok = words[w]
+            if (len(tok) == 0) continue
+            var count = bucket[tok]
+            if (count == none) count = 0
+            // Laplace smoothing
+            var prob = to_f32(count + 1) / to_f32(total_words + vocab_size)
+            logp = logp + log(prob)
+        }
+        if (logp > best_logp) {
+            best_logp = logp
+            best_label = label
+        }
+    }
+    if (best_label == "") best_label = "unknown"
+    return(best_label)
+}
+
+function main() {
+    print("=== Naive Bayes Demo ===")
+    var docs = {
+        0: {label: "sports", text: "team wins game score goal"},
+        1: {label: "sports", text: "player scores goal in match"},
+        2: {label: "tech", text: "new gpu released benchmark fast"},
+        3: {label: "tech", text: "cpu performance review overclock"},
+        4: {label: "food", text: "tasty recipe cook dinner"},
+        5: {label: "food", text: "bake bread with butter"}
+    }
+    var model = train(docs)
+    print("classify 'goal scored by team':", classify(model, "goal scored by team"))
+    print("classify 'butter recipe bake':", classify(model, "butter recipe bake"))
+    print("classify 'new cpu gpu review':", classify(model, "new cpu gpu review"))
+}

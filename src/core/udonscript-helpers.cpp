@@ -167,7 +167,7 @@ namespace udon_script_helpers
 
 	bool is_numeric(const UdonValue& v)
 	{
-		return v.type == UdonValue::Type::S32 || v.type == UdonValue::Type::F32 || v.type == UdonValue::Type::Bool;
+		return v.type == UdonValue::Type::S32 || v.type == UdonValue::Type::F32 || v.type == UdonValue::Type::Bool || v.type == UdonValue::Type::None;
 	}
 
 	bool is_vector(const UdonValue& v)

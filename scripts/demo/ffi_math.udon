@@ -1,0 +1,10 @@
+// Demo: FFI via dl_open
+
+function main() {
+    print("=== FFI Math Demo ===")
+    var ns = dl_open("libm.so.6")
+    print("pow(2,5):", ns:call("pow(f32,f32):f32", 2, 5))
+    print("sin(1.0):", ns:call("sin(f32):f32", 1.0))
+    print("floor(3.7):", ns:call("floor(f32):f32", 3.7))
+    ns:close()
+}
