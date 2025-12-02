@@ -10,4 +10,14 @@ function main() {
 		var mixed = {0: "zero", name: "test", 1: "one"};
 		print("mixed[0]:", mixed[0]);
 		print("mixed.name:", mixed:name);
+		
+		// Multi-line object literals
+		var multiline = {
+			a: 100,
+			b: 200,
+			c: 300
+		};
+		print("multiline.a:", multiline:a);
+		print("multiline.b:", multiline:b);
+		print("multiline.c:", multiline:c);
 	}

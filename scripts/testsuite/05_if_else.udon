@@ -20,4 +20,16 @@ function main() {
 			print("other");
 		}
 	}
+	
+	// Optional braces
+	if (x == 10)
+		print("single_statement");
+	
+	// else-if without braces
+	if (x < 5)
+		print("less_than_5");
+	else if (x < 15)
+		print("less_than_15");
+	else
+		print("15_or_more");
 }

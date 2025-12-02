@@ -3,3 +3,6 @@ y: 20
 empty_len: 0
 mixed[0]: zero
 mixed.name: test
+multiline.a: 100
+multiline.b: 200
+multiline.c: 300

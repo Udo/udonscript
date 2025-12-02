@@ -1,5 +1,158 @@
-function main() {
+/*
+You arrive at the secret entrance to the North Pole base ready to start decorating. Unfortunately, the password seems to have been changed, so you can't get in. A document taped to the wall helpfully explains:
 
+"Due to new security protocols, the password is locked in the safe below. Please see the attached document for the new combination."
+
+The safe has a dial with only an arrow on it; around the dial are the numbers 0 through 99 in order. As you turn the dial, it makes a small click noise as it reaches each number.
+
+The attached document (your puzzle input) contains a sequence of rotations, one per line, which tell you how to open the safe. A rotation starts with an L or R which indicates whether the rotation should be to the left (toward lower numbers) or to the right (toward higher numbers). Then, the rotation has a distance value which indicates how many clicks the dial should be rotated in that direction.
+
+So, if the dial were pointing at 11, a rotation of R8 would cause the dial to point at 19. After that, a rotation of L19 would cause it to point at 0.
+
+Because the dial is a circle, turning the dial left from 0 one click makes it point at 99. Similarly, turning the dial right from 99 one click makes it point at 0.
+
+So, if the dial were pointing at 5, a rotation of L10 would cause it to point at 95. After that, a rotation of R5 could cause it to point at 0.
+
+The dial starts by pointing at 50.
+
+You could follow the instructions, but your recent required official North Pole secret entrance security training seminar taught you that the safe is actually a decoy. The actual password is the number of times the dial is left pointing at 0 after any rotation in the sequence.
+
+For example, suppose the attached document contained the following rotations:
+
+L68
+L30
+R48
+L5
+R60
+L55
+L1
+L99
+R14
+L82
+
+Following these rotations would cause the dial to move as follows:
+
+    The dial starts by pointing at 50.
+    The dial is rotated L68 to point at 82.
+    The dial is rotated L30 to point at 52.
+    The dial is rotated R48 to point at 0.
+    The dial is rotated L5 to point at 95.
+    The dial is rotated R60 to point at 55.
+    The dial is rotated L55 to point at 0.
+    The dial is rotated L1 to point at 99.
+    The dial is rotated L99 to point at 0.
+    The dial is rotated R14 to point at 14.
+    The dial is rotated L82 to point at 32.
+
+Because the dial points at 0 a total of three times during this process, the password in this example is 3. */
+
+// Parse a rotation string like "L68" or "R48"
+function parse_rotation(rotation_str) {
+    var direction = substr(rotation_str, 0, 1)
+    var distance = to_s32(substr(rotation_str, 1, len(rotation_str) - 1))
     
+    return {
+        direction: direction,
+        distance: distance
+    }
+}
 
+// Apply a rotation to the current position
+function apply_rotation(position, rotation) {
+    var new_pos = position
+    
+    if (rotation:direction == "L")
+        new_pos = position - rotation:distance
+    else if (rotation:direction == "R")
+        new_pos = position + rotation:distance
+    
+    // Wrap around the 0-99 dial
+    while (new_pos < 0)
+        new_pos = new_pos + 100
+    while (new_pos >= 100)
+        new_pos = new_pos - 100
+    
+    return new_pos
+}
+
+// Solve the puzzle with given rotations
+function solve_safe(rotations) {
+    var position = 50  // Starting position
+    var zero_count = 0
+    
+    print("Starting position: " + to_string(position))
+    print("")
+    
+    for (var i = 0; i < len(rotations); i = i + 1) {
+        var rotation_str = rotations[i]
+        
+        // Skip empty lines
+        if (len(rotation_str) > 0) {
+            var rotation = parse_rotation(rotation_str)
+            var old_pos = position
+            
+            position = apply_rotation(position, rotation)
+            
+            print("Dial rotated " + rotation_str + " from " + to_string(old_pos) + " to " + to_string(position))
+            
+            if (position == 0) {
+                zero_count = zero_count + 1
+            }
+        }
+    }
+    
+    print("")
+    print("Final position: " + to_string(position))
+    print("Number of times dial pointed at 0: " + to_string(zero_count))
+    
+    return zero_count
+}
+
+function main() {
+    print("=== Advent of Code 2025 - Day 1: Safe Combination ===")
+    print("")
+    
+    // Example from the problem description
+    var example_rotations = {
+        0: "L68",
+        1: "L30",
+        2: "R48",
+        3: "L5",
+        4: "R60",
+        5: "L55",
+        6: "L1",
+        7: "L99",
+        8: "R14",
+        9: "L82"
+    }
+    
+    print("=== Example Input ===")
+    var password = solve_safe(example_rotations)
+    print("")
+    print("Password: " + to_string(password))
+    print("")
+    
+    // Try to read actual puzzle input if it exists
+    var input_file = "scripts/aoc2025/day01/input.txt"
+    
+    // Check if file exists by trying to get its size
+    var has_input = false
+    var file_content = ""
+    
+    // Try to read the file (will fail gracefully if it doesn't exist)
+    if (file_size(input_file) > 0) {
+        has_input = true
+        file_content = read_entire_file(input_file)
+    }
+    
+    if (has_input) {
+        print("=== Actual Puzzle Input ===")
+        var lines = split(file_content, "\n")
+        
+        var actual_password = solve_safe(lines)
+        print("")
+        print("Actual Password: " + to_string(actual_password))
+    }
+    
+    return password
 }

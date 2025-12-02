@@ -5,4 +5,10 @@ function main() {
 		print("i:", i);
 		i = i + 1;
 	}
+	
+	// While without braces
+	var j = 5;
+	while (j < 7)
+		j = j + 1;
+	print("j:", j);
 }

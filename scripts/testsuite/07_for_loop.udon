@@ -3,4 +3,10 @@ function main() {
 	for (var i = 0; i < 5; i = i + 1) {
 		print("i:", i);
 	}
+	
+	// For without braces
+	var sum = 0;
+	for (var j = 1; j <= 3; j = j + 1)
+		sum = sum + j;
+	print("sum:", sum);
 }

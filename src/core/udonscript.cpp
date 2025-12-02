@@ -24,12 +24,13 @@ namespace
 		Parser(const std::vector<Token>& tokens,
 			std::unordered_map<std::string, std::vector<UdonInstruction>>& instructions_out,
 			std::unordered_map<std::string, std::vector<std::string>>& params_out,
+			std::unordered_map<std::string, std::string>& variadic_out,
 			std::unordered_map<std::string, std::vector<std::string>>& events_out,
 			std::vector<UdonInstruction>& global_init_out,
 			std::unordered_set<std::string>& globals_out,
 			const std::unordered_set<std::string>& chunk_globals_out,
 			s32& lambda_counter_ref)
-			: tokens(tokens), instructions(instructions_out), params(params_out), events(events_out), global_init(global_init_out), globals(globals_out), chunk_globals(chunk_globals_out), lambda_counter(lambda_counter_ref)
+			: tokens(tokens), instructions(instructions_out), params(params_out), variadic(variadic_out), events(events_out), global_init(global_init_out), globals(globals_out), chunk_globals(chunk_globals_out), lambda_counter(lambda_counter_ref)
 		{
 		}
 
@@ -62,6 +63,7 @@ namespace
 		CodeLocation error_location{};
 		std::unordered_map<std::string, std::vector<UdonInstruction>>& instructions;
 		std::unordered_map<std::string, std::vector<std::string>>& params;
+		std::unordered_map<std::string, std::string>& variadic;
 		std::unordered_map<std::string, std::vector<std::string>>& events;
 		std::vector<UdonInstruction>& global_init;
 		std::unordered_set<std::string>& globals;
@@ -294,6 +296,7 @@ namespace
 				return false;
 
 			std::vector<std::string> param_names;
+			std::string variadic_param;
 			if (!match_symbol(")"))
 			{
 				do
@@ -305,6 +308,11 @@ namespace
 					{
 						advance();
 					}
+					if (match_symbol("..."))
+					{
+						variadic_param = param_names.back();
+						break;
+					}
 				} while (match_symbol(","));
 				if (!expect_symbol(")", "Expected ')' after parameters"))
 					return false;
@@ -315,32 +323,34 @@ namespace
 				advance();
 			}
 
-			if (!expect_symbol("{", "Expected '{' to start function body"))
-				return false;
-
-			std::vector<UdonInstruction> body;
-			std::unordered_set<std::string> locals;
-			for (const auto& p : param_names)
-				locals.insert(p);
-
-			ScopeGuard fn_scope(local_scope_stack, locals);
-			while (!is_end() && !match_symbol("}"))
-			{
-				if (!parse_statement(body, locals))
+				if (!expect_symbol("{", "Expected '{' to start function body"))
 					return false;
-			}
-			if (is_end() && (body.empty() || previous().text != "}"))
-			{
-				return !make_error(previous(), "Missing closing '}'").has_error;
-			}
 
-			instructions[function_name] = body;
-			params[function_name] = param_names;
-			if (is_event_handler)
-			{
-				events["on:" + on_target].push_back(function_name);
-			}
-			return true;
+				std::vector<UdonInstruction> body;
+				std::unordered_set<std::string> locals;
+				for (const auto& p : param_names)
+					locals.insert(p);
+
+				ScopeGuard fn_scope(local_scope_stack, locals);
+				while (!is_end() && !match_symbol("}"))
+				{
+					if (!parse_statement(body, locals))
+						return false;
+				}
+				if (is_end() && (body.empty() || previous().text != "}"))
+				{
+					return !make_error(previous(), "Missing closing '}'").has_error;
+				}
+
+				instructions[function_name] = body;
+				params[function_name] = param_names;
+				if (!variadic_param.empty())
+					variadic[function_name] = variadic_param;
+				if (is_event_handler)
+				{
+					events["on:" + on_target].push_back(function_name);
+				}
+				return true;
 		}
 
 		void emit(std::vector<UdonInstruction>& body, UdonInstruction::OpCode op, const std::vector<Value>& operands = {})
@@ -365,38 +375,43 @@ namespace
 			return true;
 		}
 
+		bool parse_statement_or_block(std::vector<UdonInstruction>& body, std::unordered_set<std::string>& locals)
+		{
+			if (check_symbol("{"))
+				return parse_block(body, locals);
+			return parse_statement(body, locals);
+		}
+
 		bool parse_statement(std::vector<UdonInstruction>& body, std::unordered_set<std::string>& locals)
 		{
-			if (match_keyword("if"))
+		if (match_keyword("if"))
+		{
+			if (!expect_symbol("(", "Expected '(' after if"))
+				return false;
+			if (!parse_expression(body, locals))
+				return false;
+			if (!expect_symbol(")", "Expected ')' after if condition"))
+				return false;
+
+			size_t jmp_false_index = body.size();
+			emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+
+			if (!parse_statement_or_block(body, locals))
+				return false;
+
+			size_t jmp_end_index = body.size();
+			emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
+
+			body[jmp_false_index].operands[0].s32_value = static_cast<s32>(body.size());
+
+			if (match_keyword("else"))
 			{
-				if (!expect_symbol("(", "Expected '(' after if"))
+				if (!parse_statement_or_block(body, locals))
 					return false;
-				if (!parse_expression(body, locals))
-					return false;
-				if (!expect_symbol(")", "Expected ')' after if condition"))
-					return false;
-
-				size_t jmp_false_index = body.size();
-				emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
-
-				if (!parse_block(body, locals))
-					return false;
-
-				size_t jmp_end_index = body.size();
-				emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
-
-				body[jmp_false_index].operands[0].s32_value = static_cast<s32>(body.size());
-
-				if (match_keyword("else"))
-				{
-					if (!parse_block(body, locals))
-						return false;
-				}
-				body[jmp_end_index].operands[0].s32_value = static_cast<s32>(body.size());
-				return true;
 			}
-
-			if (match_keyword("while"))
+			body[jmp_end_index].operands[0].s32_value = static_cast<s32>(body.size());
+			return true;
+		}			if (match_keyword("while"))
 			{
 				if (!expect_symbol("(", "Expected '(' after while"))
 					return false;
@@ -406,19 +421,17 @@ namespace
 				if (!expect_symbol(")", "Expected ')' after while condition"))
 					return false;
 
-				size_t jmp_false_index = body.size();
-				emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+			size_t jmp_false_index = body.size();
+			emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
 
-				loop_stack.push_back({});
-				loop_stack.back().continue_target = static_cast<size_t>(cond_index);
-				loop_stack.back().allow_continue = true;
-				if (!parse_block(body, locals))
-					return false;
-				for (size_t ci : loop_stack.back().continue_jumps)
-					body[ci].operands[0].s32_value = static_cast<s32>(cond_index);
-				emit(body, UdonInstruction::OpCode::JUMP, { make_int(static_cast<s32>(cond_index)) });
-
-				body[jmp_false_index].operands[0].s32_value = static_cast<s32>(body.size());
+			loop_stack.push_back({});
+			loop_stack.back().continue_target = static_cast<size_t>(cond_index);
+			loop_stack.back().allow_continue = true;
+			if (!parse_statement_or_block(body, locals))
+				return false;
+			for (size_t ci : loop_stack.back().continue_jumps)
+				body[ci].operands[0].s32_value = static_cast<s32>(cond_index);
+			emit(body, UdonInstruction::OpCode::JUMP, { make_int(static_cast<s32>(cond_index)) });				body[jmp_false_index].operands[0].s32_value = static_cast<s32>(body.size());
 				for (size_t bi : loop_stack.back().break_jumps)
 					body[bi].operands[0].s32_value = static_cast<s32>(body.size());
 				loop_stack.pop_back();
@@ -494,7 +507,7 @@ namespace
 
 				loop_stack.push_back({});
 				loop_stack.back().allow_continue = true;
-				if (!parse_block(body, locals))
+				if (!parse_statement_or_block(body, locals))
 					return false;
 				size_t continue_target = body.size();
 				for (size_t ci : loop_stack.back().continue_jumps)
@@ -880,40 +893,108 @@ namespace
 			return true;
 		}
 
-		bool parse_assignment_or_expression(std::vector<UdonInstruction>& body, std::unordered_set<std::string>& locals, bool& produced_value)
+	bool parse_assignment_or_expression(std::vector<UdonInstruction>& body, std::unordered_set<std::string>& locals, bool& produced_value)
+	{
+		// Check for property/index assignment: obj:prop = value or obj[index] = value
+		if (peek().type == Token::Type::Identifier && tokens.size() > current + 2)
 		{
-			if (peek().type == Token::Type::Identifier && tokens.size() > current + 1 && tokens[current + 1].type == Token::Type::Symbol)
+			size_t lookahead = current + 1;
+			if (tokens[lookahead].type == Token::Type::Symbol)
 			{
-				const std::string name = advance().text;
-				std::string op = tokens[current].text;
-				if (op == "=" || op == "+=" || op == "-=" || op == "*=" || op == "/=")
+				std::string next_sym = tokens[lookahead].text;
+				// Handle obj:prop = value
+				if (next_sym == ":" && lookahead + 2 < tokens.size())
 				{
-					if (!is_declared(locals, name))
-						return !make_error(previous(), "Undeclared variable '" + name + "'").has_error;
-					advance();
-					if (op != "=")
-						emit(body, UdonInstruction::OpCode::LOAD_VAR, { make_string(name) });
-					if (!parse_expression(body, locals))
-						return false;
-					if (op == "+=")
-						emit(body, UdonInstruction::OpCode::ADD);
-					else if (op == "-=")
-						emit(body, UdonInstruction::OpCode::SUB);
-					else if (op == "*=")
-						emit(body, UdonInstruction::OpCode::MUL);
-					else if (op == "/=")
-						emit(body, UdonInstruction::OpCode::DIV);
-					emit(body, UdonInstruction::OpCode::STORE_VAR, { make_string(name) });
-					produced_value = false;
-					return true;
+					if (tokens[lookahead + 2].type == Token::Type::Symbol && tokens[lookahead + 2].text == "=")
+					{
+						std::string obj_name = advance().text;
+						if (!is_declared(locals, obj_name))
+							return !make_error(previous(), "Undeclared variable '" + obj_name + "'").has_error;
+						advance(); // ':'
+						if (peek().type != Token::Type::Identifier && peek().type != Token::Type::String && peek().type != Token::Type::Number)
+							return !make_error(peek(), "Expected property name after ':'").has_error;
+						std::string prop_name = advance().text;
+						advance(); // '='
+						emit(body, UdonInstruction::OpCode::LOAD_VAR, { make_string(obj_name) });
+						if (!parse_expression(body, locals))
+							return false;
+						emit(body, UdonInstruction::OpCode::STORE_PROP, { make_string(prop_name) });
+						produced_value = false;
+						return true;
+					}
 				}
-				current--; // rewind name consumption
+				// Handle obj[index] = value
+				else if (next_sym == "[")
+				{
+					// Find matching ] and check for =
+					int bracket_depth = 1;
+					size_t bracket_end = lookahead + 1;
+					while (bracket_end < tokens.size() && bracket_depth > 0)
+					{
+						if (tokens[bracket_end].type == Token::Type::Symbol)
+						{
+							if (tokens[bracket_end].text == "[")
+								bracket_depth++;
+							else if (tokens[bracket_end].text == "]")
+								bracket_depth--;
+						}
+						if (bracket_depth > 0)
+							bracket_end++;
+					}
+					if (bracket_depth == 0 && bracket_end + 1 < tokens.size() && 
+						tokens[bracket_end + 1].type == Token::Type::Symbol && tokens[bracket_end + 1].text == "=")
+					{
+						std::string obj_name = advance().text;
+						if (!is_declared(locals, obj_name))
+							return !make_error(previous(), "Undeclared variable '" + obj_name + "'").has_error;
+						advance(); // '['
+						emit(body, UdonInstruction::OpCode::LOAD_VAR, { make_string(obj_name) });
+						if (!parse_expression(body, locals))
+							return false;
+						if (!expect_symbol("]", "Expected ']' after index"))
+							return false;
+						advance(); // '='
+						if (!parse_expression(body, locals))
+							return false;
+						emit(body, UdonInstruction::OpCode::STORE_PROP, { make_string("[index]") });
+						produced_value = false;
+						return true;
+					}
+				}
 			}
-			produced_value = true;
-			return parse_expression(body, locals);
 		}
 
-		bool parse_additive(std::vector<UdonInstruction>& body, std::unordered_set<std::string>& locals)
+		// Original variable assignment logic
+		if (peek().type == Token::Type::Identifier && tokens.size() > current + 1 && tokens[current + 1].type == Token::Type::Symbol)
+		{
+			const std::string name = advance().text;
+			std::string op = tokens[current].text;
+			if (op == "=" || op == "+=" || op == "-=" || op == "*=" || op == "/=")
+			{
+				if (!is_declared(locals, name))
+					return !make_error(previous(), "Undeclared variable '" + name + "'").has_error;
+				advance();
+				if (op != "=")
+					emit(body, UdonInstruction::OpCode::LOAD_VAR, { make_string(name) });
+				if (!parse_expression(body, locals))
+					return false;
+				if (op == "+=")
+					emit(body, UdonInstruction::OpCode::ADD);
+				else if (op == "-=")
+					emit(body, UdonInstruction::OpCode::SUB);
+				else if (op == "*=")
+					emit(body, UdonInstruction::OpCode::MUL);
+				else if (op == "/=")
+					emit(body, UdonInstruction::OpCode::DIV);
+				emit(body, UdonInstruction::OpCode::STORE_VAR, { make_string(name) });
+				produced_value = false;
+				return true;
+			}
+			current--; // rewind name consumption
+		}
+		produced_value = true;
+		return parse_expression(body, locals);
+	}		bool parse_additive(std::vector<UdonInstruction>& body, std::unordered_set<std::string>& locals)
 		{
 			if (!parse_multiplicative(body, locals))
 				return false;
@@ -1084,6 +1165,7 @@ namespace
 				return false;
 
 			std::vector<std::string> param_names;
+			std::string variadic_param;
 			if (!match_symbol(")"))
 			{
 				do
@@ -1094,6 +1176,11 @@ namespace
 					if (match_symbol(":"))
 					{
 						advance();
+					}
+					if (match_symbol("..."))
+					{
+						variadic_param = param_names.back();
+						break;
 					}
 				} while (match_symbol(","));
 				if (!expect_symbol(")", "Expected ')' after parameters"))
@@ -1131,6 +1218,8 @@ namespace
 			std::string fn_name = "__lambda_" + std::to_string(lambda_counter++);
 			instructions[fn_name] = fn_body;
 			params[fn_name] = param_names;
+			if (!variadic_param.empty())
+				variadic[fn_name] = variadic_param;
 
 			emit(body, UdonInstruction::OpCode::MAKE_CLOSURE, { make_string(fn_name) });
 			return true;
@@ -1346,7 +1435,7 @@ namespace
 		}
 	};
 
-	std::unordered_set<std::string> collect_top_level_globals(const std::vector<Token>& tokens)
+		std::unordered_set<std::string> collect_top_level_globals(const std::vector<Token>& tokens)
 	{
 		std::unordered_set<std::string> names;
 		int depth = 0;
@@ -1444,6 +1533,7 @@ static bool get_index_value(const UdonValue& obj, const UdonValue& index, UdonVa
 static CodeLocation execute_function(UdonInterpreter* interp,
 	const std::vector<UdonInstruction>& code,
 	const std::vector<std::string>& param_names,
+	const std::string& variadic_param,
 	const std::unordered_map<std::string, UdonValue>* captured_locals,
 	std::vector<UdonValue> args,
 	std::unordered_map<std::string, UdonValue> named_args,
@@ -1452,6 +1542,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 	using Value = UdonValue;
 	CodeLocation ok{};
 	ok.has_error = false;
+	const bool has_variadic = !variadic_param.empty();
 
 	for (const auto& kv : named_args)
 	{
@@ -1463,25 +1554,30 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 		}
 	}
 
-	if (args.size() > param_names.size() && named_args.empty())
-	{
-		ok.has_error = true;
-		ok.opt_error_message = "Too many positional arguments";
-		return ok;
-	}
+		if (!has_variadic && args.size() > param_names.size() && named_args.empty())
+		{
+			ok.has_error = true;
+			ok.opt_error_message = "Too many positional arguments";
+			return ok;
+		}
 
 	std::unordered_map<std::string, Value> locals;
 	if (captured_locals)
 		locals = *captured_locals;
 
 	size_t positional_index = 0;
-	for (const auto& name : param_names)
-	{
-		auto nit = named_args.find(name);
-		if (nit != named_args.end())
+		for (const auto& name : param_names)
 		{
-			locals[name] = nit->second;
-		}
+			if (has_variadic && name == variadic_param)
+			{
+				locals[name] = udon_script_helpers::make_none();
+				continue;
+			}
+			auto nit = named_args.find(name);
+			if (nit != named_args.end())
+			{
+				locals[name] = nit->second;
+			}
 		else if (positional_index < args.size())
 		{
 			locals[name] = args[positional_index++];
@@ -1491,6 +1587,20 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 			locals[name] = udon_script_helpers::make_none();
 		}
 	}
+
+	if (has_variadic)
+	{
+		Value vargs = make_array();
+		for (size_t i = positional_index; i < args.size(); ++i)
+			array_set(vargs, std::to_string(i - positional_index), args[i]);
+		locals[variadic_param] = vargs;
+	}
+		else if (!has_variadic && !named_args.empty() && args.size() > param_names.size())
+		{
+			ok.has_error = true;
+			ok.opt_error_message = "Too many positional arguments";
+			return ok;
+		}
 
 	std::vector<Value> eval_stack;
 
@@ -1652,6 +1762,49 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				eval_stack.push_back(prop);
 				break;
 			}
+			case UdonInstruction::OpCode::STORE_PROP:
+			{
+				const std::string name = !instr.operands.empty() ? instr.operands[0].string_value : "";
+				Value value{};
+				if (!pop_value(eval_stack, value, ok))
+					return ok;
+				
+				if (name == "[index]")
+				{
+					// Stack: [obj, index, value] -> pop value, index, obj
+					Value idx;
+					Value obj;
+					if (!pop_value(eval_stack, idx, ok))
+						return ok;
+					if (!pop_value(eval_stack, obj, ok))
+						return ok;
+					
+					if (obj.type != Value::Type::Array)
+					{
+						fail("Cannot index non-array");
+						return ok;
+					}
+					
+					std::string key = udon_script_helpers::key_from_value(idx);
+					udon_script_helpers::array_set(obj, key, value);
+				}
+				else
+				{
+					// Stack: [obj, value] -> pop value, obj
+					Value obj;
+					if (!pop_value(eval_stack, obj, ok))
+						return ok;
+					
+					if (obj.type != Value::Type::Array)
+					{
+						fail("Cannot set property on non-array/object");
+						return ok;
+					}
+					
+					udon_script_helpers::array_set(obj, name, value);
+				}
+				break;
+			}
 			case UdonInstruction::OpCode::EQ:
 			case UdonInstruction::OpCode::NEQ:
 			case UdonInstruction::OpCode::LT:
@@ -1799,11 +1952,11 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 						{
 							std::string rendered;
 							std::unordered_map<std::string, UdonValue> replacements;
-							if (!positional.empty() && positional[0].type == Value::Type::Array && positional[0].array_map)
-								replacements = positional[0].array_map->values;
-							const std::string& tmpl = fn_val.function->template_body;
-							size_t pos = 0;
-							while (pos < tmpl.size())
+					if (!positional.empty() && positional[0].type == Value::Type::Array && positional[0].array_map)
+						replacements = positional[0].array_map->values;
+					const std::string& tmpl = fn_val.function->template_body;
+					size_t pos = 0;
+					while (pos < tmpl.size())
 							{
 								size_t brace = tmpl.find('{', pos);
 								if (brace == std::string::npos)
@@ -1827,7 +1980,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 							call_result = udon_script_helpers::make_string(rendered);
 							return true;
 						}
-						return false;
+							return false;
 					}
 					auto code_it = interp->instructions.find(fn_val.function->function_name);
 					if (code_it == interp->instructions.end())
@@ -1838,7 +1991,11 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 					}
 					auto param_it = interp->function_params.find(fn_val.function->function_name);
 					std::vector<std::string> fn_params = (param_it != interp->function_params.end()) ? param_it->second : std::vector<std::string>();
-					CodeLocation nested = execute_function(interp, code_it->second, fn_params, &fn_val.function->captured_locals, positional, named, call_result);
+					std::string var_param;
+					auto var_it = interp->function_variadic.find(fn_val.function->function_name);
+					if (var_it != interp->function_variadic.end())
+						var_param = var_it->second;
+					CodeLocation nested = execute_function(interp, code_it->second, fn_params, var_param, &fn_val.function->captured_locals, positional, named, call_result);
 					if (nested.has_error)
 						inner_err = nested;
 					return true;
@@ -1876,19 +2033,23 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 					}
 				}
 
-				if (!handled)
-				{
-					auto fn = interp->instructions.find(callee);
-					if (fn != interp->instructions.end())
+					if (!handled)
 					{
-						auto pit = interp->function_params.find(callee);
-						std::vector<std::string> fn_params = (pit != interp->function_params.end()) ? pit->second : std::vector<std::string>();
-						CodeLocation nested = execute_function(interp, fn->second, fn_params, nullptr, positional, named, call_result);
-						if (nested.has_error)
-							return nested;
-						handled = true;
+						auto fn = interp->instructions.find(callee);
+						if (fn != interp->instructions.end())
+						{
+							auto pit = interp->function_params.find(callee);
+							std::vector<std::string> fn_params = (pit != interp->function_params.end()) ? pit->second : std::vector<std::string>();
+							std::string var_param;
+							auto var_it = interp->function_variadic.find(callee);
+							if (var_it != interp->function_variadic.end())
+								var_param = var_it->second;
+							CodeLocation nested = execute_function(interp, fn->second, fn_params, var_param, nullptr, positional, named, call_result);
+							if (nested.has_error)
+								return nested;
+							handled = true;
+						}
 					}
-				}
 
 				if (!handled)
 				{
@@ -2000,6 +2161,7 @@ std::vector<Token> UdonInterpreter::tokenize(const std::string& source_code)
 	const size_t len = source_code.size();
 	int paren_depth = 0;
 	int bracket_depth = 0;
+	int brace_depth = 0;
 	auto can_end_statement = [](const Token& t) -> bool
 	{
 		if (t.type == Token::Type::Identifier || t.type == Token::Type::Number || t.type == Token::Type::String || t.type == Token::Type::Template)
@@ -2032,6 +2194,10 @@ std::vector<Token> UdonInterpreter::tokenize(const std::string& source_code)
 				bracket_depth++;
 			else if (text == "]")
 				bracket_depth = std::max(0, bracket_depth - 1);
+			else if (text == "{")
+				brace_depth++;
+			else if (text == "}")
+				brace_depth = std::max(0, brace_depth - 1);
 		}
 		last_token = t;
 		has_last_token = true;
@@ -2058,7 +2224,7 @@ std::vector<Token> UdonInterpreter::tokenize(const std::string& source_code)
 		}
 		if (c == '\n')
 		{
-			if (has_last_token && can_end_statement(last_token) && last_token.text != ";" && paren_depth == 0 && bracket_depth == 0)
+			if (has_last_token && can_end_statement(last_token) && last_token.text != ";" && paren_depth == 0 && bracket_depth == 0 && brace_depth == 0)
 				push_token(Token::Type::Symbol, ";", line, column);
 			i++;
 			line++;
@@ -2345,6 +2511,14 @@ std::vector<Token> UdonInterpreter::tokenize(const std::string& source_code)
 		if (i + 1 < len)
 		{
 			char n = source_code[i + 1];
+			if (c == '.' && i + 2 < len && source_code[i + 1] == '.' && source_code[i + 2] == '.')
+			{
+				sym = "...";
+				i += 3;
+				column += 3;
+				push_token(Token::Type::Symbol, sym, tok_line, tok_col);
+				continue;
+			}
 			if ((c == '=' || c == '!' || c == '<' || c == '>') && n == '=')
 			{
 				sym = std::string() + c + "=";
@@ -2395,6 +2569,7 @@ CodeLocation UdonInterpreter::compile(const std::string& source_code)
 {
 	instructions.clear();
 	function_params.clear();
+	function_variadic.clear();
 	event_handlers.clear();
 	globals.clear();
 	stack.clear();
@@ -2411,7 +2586,7 @@ CodeLocation UdonInterpreter::compile_append(const std::string& source_code)
 	std::vector<Token> toks = tokenize(source_code);
 	std::vector<UdonInstruction> module_global_init;
 	std::unordered_set<std::string> chunk_globals = collect_top_level_globals(toks);
-	Parser parser(toks, instructions, function_params, event_handlers, module_global_init, declared_globals, chunk_globals, lambda_counter);
+		Parser parser(toks, instructions, function_params, function_variadic, event_handlers, module_global_init, declared_globals, chunk_globals, lambda_counter);
 	CodeLocation res = parser.parse();
 	if (res.has_error)
 		return res;
@@ -2460,14 +2635,19 @@ CodeLocation UdonInterpreter::run(std::string function_name,
 
 	auto param_it = function_params.find(function_name);
 	std::vector<std::string> param_names = (param_it != function_params.end()) ? param_it->second : std::vector<std::string>();
+	std::string variadic_param;
+	auto var_it = function_variadic.find(function_name);
+	if (var_it != function_variadic.end())
+		variadic_param = var_it->second;
 
-	return execute_function(this, fn_it->second, param_names, nullptr, std::move(args), std::move(named_args), return_value);
+	return execute_function(this, fn_it->second, param_names, variadic_param, nullptr, std::move(args), std::move(named_args), return_value);
 }
 
 void UdonInterpreter::clear()
 {
 	instructions.clear();
 	function_params.clear();
+	function_variadic.clear();
 	event_handlers.clear();
 	globals.clear();
 	stack.clear();
@@ -2570,6 +2750,9 @@ std::string UdonInterpreter::dump_instructions() const
 					break;
 				case UdonInstruction::OpCode::GET_PROP:
 					ss << "GET_PROP " << (instr.operands.empty() ? "<name>" : instr.operands[0].string_value);
+					break;
+				case UdonInstruction::OpCode::STORE_PROP:
+					ss << "STORE_PROP " << (instr.operands.empty() ? "<name>" : instr.operands[0].string_value);
 					break;
 				case UdonInstruction::OpCode::MAKE_CLOSURE:
 					ss << "MAKE_CLOSURE " << (instr.operands.empty() ? "<name>" : instr.operands[0].string_value);

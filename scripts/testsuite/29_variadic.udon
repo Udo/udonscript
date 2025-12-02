@@ -1,0 +1,17 @@
+// Test: variadic functions
+function sum_all(values...) {
+    var total = 0
+    foreach (var k, v in values) {
+        total = total + v
+    }
+    return total
+}
+
+function head_and_rest(head, tail...) {
+    return len(tail)
+}
+
+function main() {
+    print("sum:", sum_all(1, 2, 3, 4))
+    print("rest_len:", head_and_rest(10, 20, 30))
+}

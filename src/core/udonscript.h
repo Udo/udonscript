@@ -112,6 +112,7 @@ struct UdonInstruction
 		TO_BOOL,
 		LOGICAL_NOT,
 		GET_PROP,
+		STORE_PROP,
 		MAKE_CLOSURE,
 		CALL,
 		RETURN,
@@ -142,6 +143,7 @@ struct UdonInterpreter
 	std::unordered_map<std::string, UdonValue> globals;
 	std::unordered_map<std::string, std::vector<UdonInstruction>> instructions; // by function name
 	std::unordered_map<std::string, std::vector<std::string>> function_params; // parameter names per function
+	std::unordered_map<std::string, std::string> function_variadic; // variadic param name per function (optional)
 	std::unordered_map<std::string, UdonBuiltinEntry> builtins;
 	std::unordered_map<std::string, std::vector<std::string>> event_handlers; // on:event -> function names
 	std::unordered_set<std::string> declared_globals;
