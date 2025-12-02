@@ -740,6 +740,8 @@ namespace udon_script_builtins
 				fn.function = interp->allocate_function();
 				fn.function->handler = tag;
 				fn.function->handler_data = handle_id;
+				fn.function->code_ptr = nullptr;
+				fn.function->param_ptr = nullptr;
 				return fn;
 			};
 

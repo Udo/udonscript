@@ -197,5 +197,8 @@ struct UdonValue::ManagedFunction
 	std::string handler; // optional builtin handler tag
 	std::string template_body; // optional payload for template handlers
 	s32 handler_data = -1; // optional numeric payload for handlers
+	std::vector<UdonInstruction>* code_ptr = nullptr;
+	std::vector<std::string>* param_ptr = nullptr;
+	std::string variadic_param;
 	bool marked = false;
 };

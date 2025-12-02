@@ -2124,6 +2124,8 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				auto* fn_obj = interp->allocate_function();
 				fn_obj->function_name = fn_name;
 				fn_obj->captured_locals = locals;
+				fn_obj->code_ptr = &interp->instructions[fn_name];
+				fn_obj->param_ptr = &interp->function_params[fn_name];
 
 				Value v{};
 				v.type = Value::Type::Function;
@@ -2400,20 +2402,24 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 						}
 						return false;
 					}
-					auto code_it = interp->instructions.find(fn_val.function->function_name);
-					if (code_it == interp->instructions.end())
+					if (fn_val.function->code_ptr == nullptr || fn_val.function->param_ptr == nullptr)
+					{
+						auto pit = interp->function_params.find(fn_val.function->function_name);
+						if (pit != interp->function_params.end())
+							fn_val.function->param_ptr = &pit->second;
+						auto cit = interp->instructions.find(fn_val.function->function_name);
+						if (cit != interp->instructions.end())
+							fn_val.function->code_ptr = &cit->second;
+					}
+					if (!fn_val.function->code_ptr || !fn_val.function->param_ptr)
 					{
 						inner_err.has_error = true;
 						inner_err.opt_error_message = "Function '" + fn_val.function->function_name + "' not found";
 						return true;
 					}
-					auto param_it = interp->function_params.find(fn_val.function->function_name);
-					std::vector<std::string> fn_params = (param_it != interp->function_params.end()) ? param_it->second : std::vector<std::string>();
-					std::string var_param;
-					auto var_it = interp->function_variadic.find(fn_val.function->function_name);
-					if (var_it != interp->function_variadic.end())
-						var_param = var_it->second;
-					CodeLocation nested = execute_function(interp, code_it->second, fn_params, var_param, &fn_val.function->captured_locals, positional, named, call_result);
+					std::vector<std::string> fn_params = *fn_val.function->param_ptr;
+					std::string var_param = fn_val.function->variadic_param;
+					CodeLocation nested = execute_function(interp, *fn_val.function->code_ptr, fn_params, var_param, &fn_val.function->captured_locals, positional, named, call_result);
 					if (nested.has_error)
 						inner_err = nested;
 					return true;
