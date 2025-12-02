@@ -37,6 +37,7 @@ function train(docs) {
 		var bucket = word_counts[label]
 		var words = to_lower(text).split(" ")
 		foreach (var _, tok in words) {
+			tok = tok.trim()
 			if (tok.len() == 0)
 				continue
 			vocab[tok] = 1

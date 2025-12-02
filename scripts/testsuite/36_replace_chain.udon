@@ -1,0 +1,11 @@
+// Ensure method-call replace chaining behaves identically to nested calls
+function main() {
+	var sample = "line1\nline2\r\nline3";
+	var chained = sample.replace("\n", "").replace("\r", "");
+	var nested = replace(replace(sample, "\n", ""), "\r", "");
+	if (chained == nested && chained == "line1line2line3") {
+		print("replace_chain_ok");
+	} else {
+		print("replace_chain_fail", chained, nested);
+	}
+}
