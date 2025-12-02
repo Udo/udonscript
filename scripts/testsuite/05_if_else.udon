@@ -1,4 +1,7 @@
 // Test: If-else statements
+
+function get_value() { return(7) }
+
 function main() {
 	var x = 10;
 	if (x > 5) {
@@ -32,4 +35,9 @@ function main() {
 		print("less_than_15");
 	else
 		print("15_or_more");
+
+	// Inline var in condition
+	if (var y = get_value()) {
+		print("inline_var:", y);
+	}
 }

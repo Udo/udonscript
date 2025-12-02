@@ -40,6 +40,9 @@ namespace
 			ok.has_error = false;
 			while (!is_end())
 			{
+				skip_semicolons();
+				if (is_end())
+					break;
 				if (match_keyword("function"))
 				{
 					if (!parse_function())
@@ -180,16 +183,10 @@ namespace
 			return false;
 		}
 
-		bool expect_statement_terminator(const std::string& message)
+		void skip_semicolons()
 		{
-			if (match_symbol(";"))
-				return true;
-			if (check_symbol("}"))
-				return true; // allow omitting the semicolon right before a closing brace
-			if (current > 0 && peek().line > previous().line)
-				return true;
-			make_error(peek(), message);
-			return false;
+			while (match_symbol(";"))
+				;
 		}
 
 		bool is_declared(const std::unordered_set<std::string>& locals, const std::string& name) const
@@ -226,7 +223,7 @@ namespace
 				emit(global_init, UdonInstruction::OpCode::PUSH_LITERAL, { make_none() });
 			}
 			emit(global_init, UdonInstruction::OpCode::STORE_VAR, { make_string(name) });
-			return expect_statement_terminator("Expected ';' after global variable declaration");
+			return true;
 		}
 
 		bool parse_function()
@@ -323,22 +320,25 @@ namespace
 				advance();
 			}
 
-				if (!expect_symbol("{", "Expected '{' to start function body"))
+			if (!expect_symbol("{", "Expected '{' to start function body"))
+				return false;
+
+			std::vector<UdonInstruction> body;
+			std::unordered_set<std::string> locals;
+			for (const auto& p : param_names)
+				locals.insert(p);
+
+			ScopeGuard fn_scope(local_scope_stack, locals);
+			while (!is_end())
+			{
+				skip_semicolons();
+				if (match_symbol("}"))
+					break;
+				if (!parse_statement(body, locals))
 					return false;
-
-				std::vector<UdonInstruction> body;
-				std::unordered_set<std::string> locals;
-				for (const auto& p : param_names)
-					locals.insert(p);
-
-				ScopeGuard fn_scope(local_scope_stack, locals);
-				while (!is_end() && !match_symbol("}"))
-				{
-					if (!parse_statement(body, locals))
-						return false;
-				}
-				if (is_end() && (body.empty() || previous().text != "}"))
-				{
+			}
+			if (is_end() && (body.empty() || previous().text != "}"))
+			{
 					return !make_error(previous(), "Missing closing '}'").has_error;
 				}
 
@@ -365,8 +365,11 @@ namespace
 		{
 			if (!expect_symbol("{", "Expected '{' to start block"))
 				return false;
-			while (!is_end() && !match_symbol("}"))
+			while (!is_end())
 			{
+				skip_semicolons();
+				if (match_symbol("}"))
+					break;
 				if (!parse_statement(body, locals))
 					return false;
 			}
@@ -384,17 +387,18 @@ namespace
 
 		bool parse_statement(std::vector<UdonInstruction>& body, std::unordered_set<std::string>& locals)
 		{
-		if (match_keyword("if"))
-		{
-			if (!expect_symbol("(", "Expected '(' after if"))
-				return false;
-			if (!parse_expression(body, locals))
-				return false;
-			if (!expect_symbol(")", "Expected ')' after if condition"))
-				return false;
+			skip_semicolons();
+			if (match_keyword("if"))
+			{
+				if (!expect_symbol("(", "Expected '(' after if"))
+					return false;
+				if (!parse_expression(body, locals))
+					return false;
+				if (!expect_symbol(")", "Expected ')' after if condition"))
+					return false;
 
-			size_t jmp_false_index = body.size();
-			emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+				size_t jmp_false_index = body.size();
+				emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
 
 			if (!parse_statement_or_block(body, locals))
 				return false;
@@ -404,14 +408,17 @@ namespace
 
 			body[jmp_false_index].operands[0].s32_value = static_cast<s32>(body.size());
 
+			// Allow semicolons between the 'if' body and an 'else' keyword
+			skip_semicolons();
 			if (match_keyword("else"))
 			{
 				if (!parse_statement_or_block(body, locals))
 					return false;
 			}
-			body[jmp_end_index].operands[0].s32_value = static_cast<s32>(body.size());
-			return true;
-		}			if (match_keyword("while"))
+				body[jmp_end_index].operands[0].s32_value = static_cast<s32>(body.size());
+				return true;
+			}
+			if (match_keyword("while"))
 			{
 				if (!expect_symbol("(", "Expected '(' after while"))
 					return false;
@@ -421,17 +428,18 @@ namespace
 				if (!expect_symbol(")", "Expected ')' after while condition"))
 					return false;
 
-			size_t jmp_false_index = body.size();
-			emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+				size_t jmp_false_index = body.size();
+				emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
 
-			loop_stack.push_back({});
-			loop_stack.back().continue_target = static_cast<size_t>(cond_index);
-			loop_stack.back().allow_continue = true;
-			if (!parse_statement_or_block(body, locals))
-				return false;
-			for (size_t ci : loop_stack.back().continue_jumps)
-				body[ci].operands[0].s32_value = static_cast<s32>(cond_index);
-			emit(body, UdonInstruction::OpCode::JUMP, { make_int(static_cast<s32>(cond_index)) });				body[jmp_false_index].operands[0].s32_value = static_cast<s32>(body.size());
+				loop_stack.push_back({});
+				loop_stack.back().continue_target = static_cast<size_t>(cond_index);
+				loop_stack.back().allow_continue = true;
+				if (!parse_statement_or_block(body, locals))
+					return false;
+				for (size_t ci : loop_stack.back().continue_jumps)
+					body[ci].operands[0].s32_value = static_cast<s32>(cond_index);
+				emit(body, UdonInstruction::OpCode::JUMP, { make_int(static_cast<s32>(cond_index)) });
+				body[jmp_false_index].operands[0].s32_value = static_cast<s32>(body.size());
 				for (size_t bi : loop_stack.back().break_jumps)
 					body[bi].operands[0].s32_value = static_cast<s32>(body.size());
 				loop_stack.pop_back();
@@ -644,11 +652,14 @@ namespace
 				loop_stack.push_back({});
 				loop_stack.back().allow_continue = false;
 
-				bool has_default = false;
-				while (!is_end() && !check_symbol("}"))
+			bool has_default = false;
+			while (!is_end() && !check_symbol("}"))
+			{
+				skip_semicolons();
+				if (check_symbol("}"))
+					break;
+				if (match_keyword("case"))
 				{
-					if (match_keyword("case"))
-					{
 						if (peek().type != Token::Type::Number && peek().type != Token::Type::String && peek().type != Token::Type::Identifier && peek().type != Token::Type::Keyword)
 							return !make_error(peek(), "Expected literal after case").has_error;
 						Value case_val;
@@ -677,36 +688,46 @@ namespace
 							return false;
 
 						emit(body, UdonInstruction::OpCode::LOAD_VAR, { make_string(tmp_name) });
-						emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { case_val });
-						emit(body, UdonInstruction::OpCode::EQ);
-						size_t jz_index = body.size();
-						emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+					emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { case_val });
+					emit(body, UdonInstruction::OpCode::EQ);
+					size_t jz_index = body.size();
+					emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
 
-						while (!is_end() && !check_symbol("}") && !(peek().type == Token::Type::Keyword && (peek().text == "case" || peek().text == "default")))
-						{
-							if (!parse_statement(body, locals))
-								return false;
-						}
+					while (!is_end())
+					{
+						skip_semicolons();
+						if (check_symbol("}"))
+							break;
+						if (peek().type == Token::Type::Keyword && (peek().text == "case" || peek().text == "default"))
+							break;
+						if (!parse_statement(body, locals))
+							return false;
+					}
 
 						size_t end_jump = body.size();
 						emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
 						body[jz_index].operands[0].s32_value = static_cast<s32>(body.size());
 						loop_stack.back().break_jumps.push_back(end_jump);
-					}
-					else if (match_keyword("default"))
-					{
-						if (has_default)
-							return !make_error(previous(), "Multiple default labels").has_error;
-						has_default = true;
-						if (!expect_symbol(":", "Expected ':' after default"))
-							return false;
-						while (!is_end() && !check_symbol("}") && !(peek().type == Token::Type::Keyword && (peek().text == "case")))
-						{
-							if (!parse_statement(body, locals))
-								return false;
 						}
-					}
-					else
+						else if (match_keyword("default"))
+						{
+							if (has_default)
+								return !make_error(previous(), "Multiple default labels").has_error;
+							has_default = true;
+							if (!expect_symbol(":", "Expected ':' after default"))
+								return false;
+							while (!is_end())
+							{
+								skip_semicolons();
+								if (check_symbol("}"))
+									break;
+								if (peek().type == Token::Type::Keyword && (peek().text == "case"))
+									break;
+								if (!parse_statement(body, locals))
+									return false;
+							}
+						}
+						else
 					{
 						return !make_error(peek(), "Expected case/default or '}' in switch").has_error;
 					}
@@ -740,18 +761,25 @@ namespace
 					emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_none() });
 				}
 				emit(body, UdonInstruction::OpCode::STORE_VAR, { make_string(name) });
-				return expect_statement_terminator("Expected ';' after variable declaration");
+				return true;
 			}
 			if (match_keyword("return"))
 			{
-				bool has_expr = !(check_symbol(";") || check_symbol("}"));
-				if (has_expr)
+				if (!expect_symbol("(", "Expected '(' after return"))
+					return false;
+				if (!check_symbol(")"))
 				{
 					if (!parse_expression(body, locals))
 						return false;
 				}
+				else
+				{
+					emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_none() });
+				}
+				if (!expect_symbol(")", "Expected ')' after return value"))
+					return false;
 				emit(body, UdonInstruction::OpCode::RETURN);
-				return expect_statement_terminator("Expected ';' after return");
+				return true;
 			}
 
 			if (match_keyword("break"))
@@ -761,7 +789,7 @@ namespace
 				size_t jmp_idx = body.size();
 				emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
 				loop_stack.back().break_jumps.push_back(jmp_idx);
-				return expect_statement_terminator("Expected ';' after break");
+				return true;
 			}
 
 			if (match_keyword("continue"))
@@ -771,7 +799,7 @@ namespace
 				size_t jmp_idx = body.size();
 				emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
 				loop_stack.back().continue_jumps.push_back(jmp_idx);
-				return expect_statement_terminator("Expected ';' after continue");
+				return true;
 			}
 
 			bool produced = false;
@@ -779,12 +807,13 @@ namespace
 				return false;
 			if (produced)
 				emit(body, UdonInstruction::OpCode::POP);
-			return expect_statement_terminator("Expected ';' after expression");
+			return true;
 		}
 
 		bool parse_expression(std::vector<UdonInstruction>& body, std::unordered_set<std::string>& locals)
 		{
-			return parse_or(body, locals);
+			bool produced = true;
+			return parse_assignment_or_expression(body, locals, produced);
 		}
 
 		bool parse_or(std::vector<UdonInstruction>& body, std::unordered_set<std::string>& locals)
@@ -895,6 +924,33 @@ namespace
 
 	bool parse_assignment_or_expression(std::vector<UdonInstruction>& body, std::unordered_set<std::string>& locals, bool& produced_value)
 	{
+		// Inline variable declaration as an expression, e.g. if (var x = foo())
+		if (match_keyword("var"))
+		{
+			if (peek().type != Token::Type::Identifier)
+				return !make_error(peek(), "Expected variable name").has_error;
+			const std::string name = advance().text;
+			locals.insert(name);
+			if (match_symbol(":"))
+			{
+				advance();
+			}
+
+			if (match_symbol("="))
+			{
+				if (!parse_expression(body, locals))
+					return false;
+			}
+			else
+			{
+				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_none() });
+			}
+			emit(body, UdonInstruction::OpCode::STORE_VAR, { make_string(name) });
+			emit(body, UdonInstruction::OpCode::LOAD_VAR, { make_string(name) });
+			produced_value = true;
+			return true;
+		}
+
 		// Check for property/index assignment: obj:prop = value or obj[index] = value
 		if (peek().type == Token::Type::Identifier && tokens.size() > current + 2)
 		{
@@ -991,9 +1047,9 @@ namespace
 				return true;
 			}
 			current--; // rewind name consumption
-		}
-		produced_value = true;
-		return parse_expression(body, locals);
+			}
+			produced_value = true;
+			return parse_or(body, locals);
 	}		bool parse_additive(std::vector<UdonInstruction>& body, std::unordered_set<std::string>& locals)
 		{
 			if (!parse_multiplicative(body, locals))
@@ -1203,8 +1259,11 @@ namespace
 			LoopGuard loop_guard(loop_stack, true);
 			ScopeGuard scope_guard(local_scope_stack, fn_locals);
 
-			while (!is_end() && !match_symbol("}"))
+			while (!is_end())
 			{
+				skip_semicolons();
+				if (match_symbol("}"))
+					break;
 				if (!parse_statement(fn_body, fn_locals))
 				{
 					return false;
@@ -2159,22 +2218,6 @@ std::vector<Token> UdonInterpreter::tokenize(const std::string& source_code)
 
 	size_t i = 0;
 	const size_t len = source_code.size();
-	int paren_depth = 0;
-	int bracket_depth = 0;
-	int brace_depth = 0;
-	auto can_end_statement = [](const Token& t) -> bool
-	{
-		if (t.type == Token::Type::Identifier || t.type == Token::Type::Number || t.type == Token::Type::String || t.type == Token::Type::Template)
-			return true;
-		if (t.type == Token::Type::Keyword && (t.text == "true" || t.text == "false" || t.text == "return" || t.text == "break" || t.text == "continue"))
-			return true;
-		if (t.type == Token::Type::Symbol && (t.text == ")" || t.text == "]" || t.text == ";"))
-			return true;
-		return false;
-	};
-
-	Token last_token{};
-	bool has_last_token = false;
 
 	auto push_token = [&](Token::Type type, const std::string& text, u32 l, u32 c)
 	{
@@ -2184,23 +2227,6 @@ std::vector<Token> UdonInterpreter::tokenize(const std::string& source_code)
 		t.line = l;
 		t.column = c;
 		tokens.push_back(t);
-		if (type == Token::Type::Symbol)
-		{
-			if (text == "(")
-				paren_depth++;
-			else if (text == ")")
-				paren_depth = std::max(0, paren_depth - 1);
-			else if (text == "[")
-				bracket_depth++;
-			else if (text == "]")
-				bracket_depth = std::max(0, bracket_depth - 1);
-			else if (text == "{")
-				brace_depth++;
-			else if (text == "}")
-				brace_depth = std::max(0, brace_depth - 1);
-		}
-		last_token = t;
-		has_last_token = true;
 	};
 
 	auto is_ident_start = [](char c)
@@ -2224,8 +2250,6 @@ std::vector<Token> UdonInterpreter::tokenize(const std::string& source_code)
 		}
 		if (c == '\n')
 		{
-			if (has_last_token && can_end_statement(last_token) && last_token.text != ";" && paren_depth == 0 && bracket_depth == 0 && brace_depth == 0)
-				push_token(Token::Type::Symbol, ";", line, column);
 			i++;
 			line++;
 			column = 1;
@@ -2356,8 +2380,6 @@ std::vector<Token> UdonInterpreter::tokenize(const std::string& source_code)
 			t.line = tok_line;
 			t.column = tok_col;
 			tokens.push_back(t);
-			last_token = t;
-			has_last_token = true;
 			continue;
 		}
 

@@ -3,7 +3,7 @@ var global_var = 100;
 
 function test_scope() {
 	var local_var = 50;
-	return global_var + local_var;
+	return(global_var + local_var);
 }
 
 function main() {

@@ -7,9 +7,9 @@ function main() {
 
     var capture = 4
     var make_adder = function(extra) {
-        return function(x) {
-            return x + capture + extra
-        }
+        return(function(x) {
+            return(x + capture + extra)
+        })
     }
 
     var add5 = make_adder(1)
@@ -20,9 +20,9 @@ function main() {
     var outer = 1
     var make_combo = function(a) {
         var inner = 10
-        return function(b) {
-            return outer + inner + a + b
-        }
+        return(function(b) {
+            return(outer + inner + a + b)
+        })
     }
     var combo = make_combo(5)
     outer = 100 // outer captured by value at creation, so stays 1
@@ -32,8 +32,8 @@ function main() {
     print("method builtin string:", "MiXeD".to_lower())
 
     var obj = {
-        len: function(self) { return 42 },
-        custom: function(self, msg) { return "custom:" + msg }
+        len: function(self) { return(42) },
+        custom: function(self, msg) { return("custom:" + msg) }
     }
     print("array property callable:", obj.len())
     print("method property:", obj.custom("ok"))

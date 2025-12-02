@@ -66,22 +66,24 @@ true
 false
 ```
 
-### Statement Terminators
+### Statement Boundaries
 
-Semicolons are **optional** in UdonScript. Line breaks can serve as statement terminators:
+The parser is expression-based and does not rely on automatic semicolon insertion. Semicolons are treated like whitespace everywhere except inside `for (...)` headers, where they still separate the init/condition/increment parts.
+
+You can freely break lines or place multiple statements on one line without semicolons:
 
 ```javascript
-// Semicolons are optional
-var x = 10
-var y = 20
-print("Sum: " + to_string(x + y))
+var x = 10 var y = 20 print("Sum: " + to_string(x + y))
 
-// But you can still use them if you prefer
-var a = 5;
-var b = 10;
+var total = add(
+    foo,
+    bar)
 
-// Multiple statements on one line require semicolons
-var m = 1; var n = 2; print(to_string(m + n))
+return(total) // return values are written with parentheses
+
+for (var i = 0; i < 10; i = i + 1) {
+    // ...
+}
 ```
 
 ---
@@ -321,7 +323,7 @@ switch (day) {
 ```javascript
 function functionName(param1, param2) {
     // code
-    return value
+    return(value)
 }
 ```
 
@@ -335,11 +337,11 @@ function noParams() {
 }
 
 function oneParam(x) {
-    return x * 2
+    return(x * 2)
 }
 
 function multipleParams(a, b, c) {
-    return a + b + c
+    return(a + b + c)
 }
 ```
 
@@ -349,7 +351,7 @@ Parameters and return types can be annotated:
 
 ```javascript
 function add(a: s32, b: s32) -> s32 {
-    return a + b
+    return(a + b)
 }
 ```
 
@@ -360,7 +362,7 @@ Anonymous functions can be created as expressions using the same syntax as a nor
 ```javascript
 var bias = 3
 var add_bias = function(x) {
-    return x + bias
+    return(x + bias)
 }
 bias = 100
 print(add_bias(4)) // prints 104
@@ -383,11 +385,11 @@ greet(lastName="Smith", firstName="John", title="Dr.")
 
 ### Return Values
 
-Use `return` to return a value from a function:
+Use `return(expr)` to return a value from a function:
 
 ```javascript
 function square(x) {
-    return x * x
+    return(x * x)
 }
 
 var result = square(5)  // result = 25
@@ -549,7 +551,7 @@ var playerName = "Player"
 
 // Helper function
 function calculateBonus(basePoints, multiplier) {
-    return basePoints * multiplier
+    return(basePoints * multiplier)
 }
 
 // Main game loop function
@@ -641,7 +643,7 @@ foreachStmt     → "foreach" "(" IDENTIFIER "," IDENTIFIER "in" expression ")" 
 switchStmt      → "switch" "(" expression ")" "{" caseStmt* defaultStmt? "}"
 caseStmt        → "case" expression ":" statement*
 defaultStmt     → "default" ":" statement*
-returnStmt      → "return" expression?
+returnStmt      → "return" "(" expression? ")"
 expression      → assignment
 assignment      → ( property "=" )? logicalOr
 logicalOr       → logicalAnd ( "||" logicalAnd )*

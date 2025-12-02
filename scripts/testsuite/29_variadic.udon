@@ -4,11 +4,11 @@ function sum_all(values...) {
     foreach (var k, v in values) {
         total = total + v
     }
-    return total
+    return(total)
 }
 
 function head_and_rest(head, tail...) {
-    return len(tail)
+    return(len(tail))
 }
 
 function main() {
