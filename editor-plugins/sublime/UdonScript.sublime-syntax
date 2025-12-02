@@ -1,0 +1,72 @@
+%YAML 1.2
+---
+name: UdonScript
+file_extensions:
+  - udon
+scope: source.udon
+
+contexts:
+  main:
+    - include: comments
+    - include: strings
+    - include: templates
+    - include: keywords
+    - include: types
+    - include: numbers
+    - include: functions
+
+  comments:
+    - match: //.*
+      scope: comment.line.double-slash.udon
+    - begin: /\*
+      end: \*/
+      scope: comment.block.udon
+
+  strings:
+    - begin: '"'
+      beginCaptures: {0: {name: punctuation.definition.string.begin.udon}}
+      end: '"'
+      endCaptures: {0: {name: punctuation.definition.string.end.udon}}
+      name: string.quoted.double.udon
+      patterns:
+        - match: '\\[nrt0bf''"\\]'
+          scope: constant.character.escape.udon
+    - begin: "'"
+      beginCaptures: {0: {name: punctuation.definition.string.begin.udon}}
+      end: "'"
+      endCaptures: {0: {name: punctuation.definition.string.end.udon}}
+      name: string.quoted.single.udon
+      patterns:
+        - match: '\\[nrt0bf''"\\]'
+          scope: constant.character.escape.udon
+
+  templates:
+    - begin: '\$([A-Za-z_][A-Za-z0-9_]*)\('
+      beginCaptures:
+        0: {name: entity.name.function.template.udon}
+        1: {name: entity.name.function.template.udon}
+      end: '\)'
+      name: meta.template.udon
+      patterns:
+        - include: strings
+        - include: comments
+        - match: .
+          scope: text.html.basic
+
+  keywords:
+    - match: \b(function|return|var|if|else|while|for|foreach|in|break|continue|switch|case|default|on)\b
+      scope: keyword.control.udon
+    - match: \b(true|false)\b
+      scope: constant.language.boolean.udon
+
+  types:
+    - match: \b(vec2|vec3|vec4|s32|f32|string|bool|array)\b
+      scope: storage.type.udon
+
+  numbers:
+    - match: \b\d+(?:\.\d+)?\b
+      scope: constant.numeric.udon
+
+  functions:
+    - match: (?<=\bfunction\s+)[A-Za-z_][A-Za-z0-9_]*
+      scope: entity.name.function.udon

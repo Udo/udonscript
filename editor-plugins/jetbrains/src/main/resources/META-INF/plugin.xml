@@ -1,0 +1,14 @@
+<idea-plugin>
+    <id>udon.udonscript</id>
+    <name>UdonScript</name>
+    <vendor>Local</vendor>
+    <description>Basic UdonScript file type and syntax highlighting.</description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <fileType implementationClass="udon.UdonFileType"/>
+        <lang.parserDefinition language="UdonScript" implementationClass="udon.UdonParserDefinition"/>
+        <lang.syntaxHighlighterFactory language="UdonScript" implementationClass="udon.UdonSyntaxHighlighterFactory"/>
+    </extensions>
+</idea-plugin>
