@@ -1,0 +1,25 @@
+[udon]
+title=UdonScript
+extension=udon
+lexer=C
+keywords= function return var if else while for foreach in break continue switch case default on true false
+types= vec2 vec3 vec4 s32 f32 string bool array
+comment_single=//
+comment_open=/*
+comment_close=*/
+string_delimiters="'"
+
+[settings]
+icon=lang-script
+tag_parser=C
+tag_parser_extensions=*.udon
+comment_use_indent=true
+comment_single_first=true
+
+[indentation]
+indent_width=4
+indent_type=0
+
+[build-menu]
+B01=Compile
+%22make%22=make

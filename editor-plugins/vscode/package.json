@@ -1,0 +1,24 @@
+{
+  "name": "udonscript",
+  "displayName": "UdonScript",
+  "version": "0.0.1",
+  "publisher": "local",
+  "engines": { "vscode": "^1.50.0" },
+  "contributes": {
+    "languages": [
+      {
+        "id": "udonscript",
+        "aliases": ["UdonScript", "udon"],
+        "extensions": [".udon"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "udonscript",
+        "scopeName": "source.udon",
+        "path": "./syntaxes/udonscript.tmLanguage.json"
+      }
+    ]
+  }
+}

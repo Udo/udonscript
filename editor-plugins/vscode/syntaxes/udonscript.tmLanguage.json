@@ -1,0 +1,87 @@
+{
+  "scopeName": "source.udon",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#templates" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#functions" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "name": "comment.line.double-slash.udon", "match": "//.*$" },
+        { "name": "comment.block.udon", "begin": "/\\*", "end": "\\*/" }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.udon",
+          "begin": "\"",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.udon" } },
+          "end": "\"",
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.udon" } },
+          "patterns": [
+            { "name": "constant.character.escape.udon", "match": "\\\\([nrt0bf'\"\\\\])" }
+          ]
+        },
+        {
+          "name": "string.quoted.single.udon",
+          "begin": "'",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.udon" } },
+          "end": "'",
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.udon" } },
+          "patterns": [
+            { "name": "constant.character.escape.udon", "match": "\\\\([nrt0bf'\"\\\\])" }
+          ]
+        }
+      ]
+    },
+    "templates": {
+      "patterns": [
+        {
+          "name": "meta.template.udon",
+          "begin": "\\$([A-Za-z_][A-Za-z0-9_]*)\\(",
+          "beginCaptures": {
+            "0": { "name": "entity.name.function.template.udon" },
+            "1": { "name": "entity.name.function.template.udon" }
+          },
+          "end": "\\)",
+          "contentName": "text.html.basic",
+          "patterns": [
+            { "include": "text.html.basic" },
+            { "include": "#strings" },
+            { "match": ".", "name": "text.html.basic" }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        { "name": "constant.numeric.udon", "match": "\\b\\d+(?:\\.\\d+)?\\b" }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        { "name": "keyword.control.udon", "match": "\\b(function|return|var|if|else|while|for|foreach|in|break|continue|switch|case|default|on)\\b" },
+        { "name": "constant.language.boolean.udon", "match": "\\b(true|false)\\b" }
+      ]
+    },
+    "types": {
+      "patterns": [
+        { "name": "storage.type.udon", "match": "\\b(vec2|vec3|vec4|s32|f32|string|bool|array)\\b" }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.udon",
+          "match": "(?<=\\bfunction\\s+)[A-Za-z_][A-Za-z0-9_]*"
+        }
+      ]
+    }
+  }
+}
