@@ -1,5 +1,5 @@
 #include "core/udonscript.h"
-#include "core/udonscript-internal.h"
+#include "core/helpers.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -79,7 +79,7 @@ int main(int argc, char* argv[])
 
 	if (return_value.type != UdonValue::Type::None)
 	{
-		std::cout << "Return value: " << udon_script_helpers::value_to_string(return_value) << "\n";
+		std::cout << "Return value: " << value_to_string(return_value) << "\n";
 	}
 
 	return 0;

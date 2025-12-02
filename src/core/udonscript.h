@@ -189,6 +189,8 @@ struct UdonInterpreter
 	UdonInterpreter* get_imported_interpreter(s32 id);
 };
 
+extern thread_local UdonInterpreter* g_udon_current;
+
 struct UdonValue::ManagedArray
 {
 	std::unordered_map<std::string, UdonValue> values;

@@ -18,13 +18,8 @@ foreach(OUTPUTCONFIG ${CMAKE_CONFIGURATION_TYPES})
     set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${OUTPUTCONFIG} ${CMAKE_SOURCE_DIR}/tmp)
 endforeach()
 
-# Core library sources
-set(UDONSCRIPT_CORE_SOURCES
-    src/core/types.cpp
-    src/core/udonscript.cpp
-    src/core/udonscript-builtins.cpp
-    src/core/udonscript-helpers.cpp
-)
+# Core library sources - automatically find all .cpp files in src/core
+file(GLOB UDONSCRIPT_CORE_SOURCES ${CMAKE_SOURCE_DIR}/src/core/*.cpp)
 
 # Create static library
 add_library(udonscript_core STATIC ${UDONSCRIPT_CORE_SOURCES})

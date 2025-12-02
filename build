@@ -12,9 +12,20 @@ NC='\033[0m' # No Color
 
 echo -e "${GREEN}Building UdonScript...${NC}"
 
+if [[ "$1" == "--clean" ]]; then
+    echo -e "${YELLOW}Cleaning build directories...${NC}"
+    rm -rf bin/*
+    rm -rf tmp/*
+fi
+
 # Use make to build the project
 make all
 
 echo -e "${GREEN}Build complete!${NC}"
 echo -e "Executables are in: ${YELLOW}bin/${NC}"
 echo -e "Intermediate files are in: ${YELLOW}tmp/${NC}"
+
+if [[ "$1" == "--tests" ]]; then
+    echo -e "${GREEN}Running tests...${NC}"
+    ./bin/testrunner | grep "Results:"
+fi

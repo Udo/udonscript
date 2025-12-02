@@ -11,11 +11,8 @@ PROGRAMS_DIR = $(SRC_DIR)/programs
 BIN_DIR = bin
 TMP_DIR = tmp
 
-# Core library sources
-CORE_SOURCES = $(CORE_DIR)/types.cpp \
-               $(CORE_DIR)/udonscript.cpp \
-               $(CORE_DIR)/udonscript-builtins.cpp \
-               $(CORE_DIR)/udonscript-helpers.cpp
+# Core library sources - automatically find all .cpp files in src/core
+CORE_SOURCES = $(wildcard $(CORE_DIR)/*.cpp)
 
 # Core library objects
 CORE_OBJECTS = $(patsubst $(CORE_DIR)/%.cpp,$(TMP_DIR)/%.o,$(CORE_SOURCES))

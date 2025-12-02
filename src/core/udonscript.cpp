@@ -1,5 +1,5 @@
 #include "udonscript.h"
-#include "udonscript-internal.h"
+#include "helpers.h"
 #include <cctype>
 #include <iostream>
 #include <sstream>
@@ -14,1991 +14,62 @@
 #if defined(__unix__) || defined(__APPLE__)
 #include <dlfcn.h>
 #endif
-
-using namespace udon_script_helpers;
-using namespace udon_script_builtins;
+#include "parser.h"
 
 thread_local UdonInterpreter* g_udon_current = nullptr;
 
-namespace
+void register_builtins(UdonInterpreter* interp);
+
+bool handle_builtin(UdonInterpreter* interp,
+	const std::string& name,
+	const std::vector<UdonValue>& positional,
+	const std::unordered_map<std::string, UdonValue>& named,
+	UdonValue& out,
+	CodeLocation& err)
 {
-	using Value = UdonValue;
-	struct Parser
+	auto it = interp->builtins.find(name);
+	if (it == interp->builtins.end())
+		return false;
+	return it->second.function(interp, positional, named, out, err);
+}
+
+std::unordered_set<std::string> collect_top_level_globals(const std::vector<Token>& tokens)
+{
+	std::unordered_set<std::string> names;
+	int depth = 0;
+	for (size_t i = 0; i + 1 < tokens.size(); ++i)
 	{
-		Parser(const std::vector<Token>& tokens,
-			std::unordered_map<std::string, std::vector<UdonInstruction>>& instructions_out,
-			std::unordered_map<std::string, std::vector<std::string>>& params_out,
-			std::unordered_map<std::string, std::string>& variadic_out,
-			std::unordered_map<std::string, std::vector<s32>>& param_slots_out,
-			std::unordered_map<std::string, size_t>& scope_size_out,
-			std::unordered_map<std::string, s32>& variadic_slot_out,
-			std::unordered_map<std::string, std::vector<std::string>>& events_out,
-			std::vector<UdonInstruction>& global_init_out,
-			std::unordered_set<std::string>& globals_out,
-			const std::unordered_set<std::string>& chunk_globals_out,
-			s32& lambda_counter_ref)
-			: tokens(tokens),
-			  instructions(instructions_out),
-			  params(params_out),
-			  variadic(variadic_out),
-			  param_slots(param_slots_out),
-			  scope_sizes(scope_size_out),
-			  variadic_slot(variadic_slot_out),
-			  events(events_out),
-			  global_init(global_init_out),
-			  globals(globals_out),
-			  chunk_globals(chunk_globals_out),
-			  lambda_counter(lambda_counter_ref)
+		const Token& t = tokens[i];
+		if (t.type == Token::Type::Symbol)
 		{
+			if (t.text == "{")
+				depth++;
+			else if (t.text == "}")
+				depth = std::max(0, depth - 1);
 		}
-
-		CodeLocation parse()
+		if (depth == 0 && t.type == Token::Type::Keyword && t.text == "var" && tokens[i + 1].type == Token::Type::Identifier)
 		{
-			CodeLocation ok{};
-			ok.has_error = false;
-			while (!is_end())
-			{
-				skip_semicolons();
-				if (is_end())
-					break;
-				if (match_keyword("function"))
-				{
-					if (!parse_function())
-						return error_location;
-					continue;
-				}
-				if (match_keyword("var"))
-				{
-					if (!parse_global_var())
-						return error_location;
-					continue;
-				}
-				return make_error(peek(), "Expected 'function' or 'var'");
-			}
-			return ok;
+			names.insert(tokens[i + 1].text);
 		}
-
-	  private:
-		const std::vector<Token>& tokens;
-		size_t current = 0;
-		CodeLocation error_location{};
-		std::unordered_map<std::string, std::vector<UdonInstruction>>& instructions;
-		std::unordered_map<std::string, std::vector<std::string>>& params;
-		std::unordered_map<std::string, std::string>& variadic;
-		std::unordered_map<std::string, std::vector<s32>>& param_slots;
-		std::unordered_map<std::string, size_t>& scope_sizes;
-		std::unordered_map<std::string, s32>& variadic_slot;
-		std::unordered_map<std::string, std::vector<std::string>>& events;
-		std::vector<UdonInstruction>& global_init;
-		std::unordered_set<std::string>& globals;
-		const std::unordered_set<std::string>& chunk_globals;
-		s32& lambda_counter;
-
-		struct ResolvedVariable
-		{
-			bool is_global = false;
-			s32 depth = 0;
-			s32 slot = 0;
-			std::string name;
-		};
-
-		struct ScopeInfo
-		{
-			std::unordered_map<std::string, s32> slots;
-			s32 declare(const std::string& name)
-			{
-				auto it = slots.find(name);
-				if (it != slots.end())
-					return it->second;
-				s32 idx = static_cast<s32>(slots.size());
-				slots[name] = idx;
-				return idx;
-			}
-			bool contains(const std::string& name) const
-			{
-				return slots.find(name) != slots.end();
-			}
-		};
-
-		struct ScopeFrame
-		{
-			std::shared_ptr<ScopeInfo> scope;
-			size_t enter_instr = static_cast<size_t>(-1);
-			bool runtime_scope = false;
-		};
-
-		struct FunctionContext
-		{
-			std::vector<ScopeFrame> scope_stack;
-			std::vector<std::shared_ptr<ScopeInfo>> enclosing_scopes; // innermost -> outermost captured from surrounding contexts
-			std::vector<s32> param_slot_indices;
-			s32 variadic_slot_index = -1;
-
-			ScopeFrame& current_scope()
-			{
-				return scope_stack.back();
-			}
-			const ScopeFrame& current_scope() const
-			{
-				return scope_stack.back();
-			}
-			size_t root_slot_count() const
-			{
-				if (scope_stack.empty())
-					return 0;
-				return scope_stack.front().scope ? scope_stack.front().scope->slots.size() : 0;
-			}
-		};
-		struct LoopContext
-		{
-			std::vector<size_t> break_jumps;
-			std::vector<size_t> continue_jumps;
-			size_t continue_target = 0;
-			bool allow_continue = false;
-			size_t scope_depth = 0;
-		};
-		std::vector<LoopContext> loop_stack;
-
-		struct LoopGuard
-		{
-			std::vector<LoopContext>& ref;
-			std::vector<LoopContext> saved;
-			LoopGuard(std::vector<LoopContext>& target, bool clear = false) : ref(target), saved(target)
-			{
-				if (clear)
-					ref.clear();
-			}
-			~LoopGuard()
-			{
-				ref = saved;
-			}
-		};
-
-		size_t begin_scope(FunctionContext& ctx, std::vector<UdonInstruction>& body, bool runtime_scope, const Token* tok = nullptr)
-		{
-			ScopeFrame frame;
-			frame.scope = std::make_shared<ScopeInfo>();
-			frame.runtime_scope = runtime_scope;
-			if (runtime_scope)
-			{
-				frame.enter_instr = body.size();
-				emit(body, UdonInstruction::OpCode::ENTER_SCOPE, { make_int(0) }, tok);
-			}
-			ctx.scope_stack.push_back(frame);
-			return ctx.scope_stack.size() - 1;
-		}
-
-		size_t end_scope(FunctionContext& ctx, std::vector<UdonInstruction>& body)
-		{
-			size_t exit_index = body.size();
-			if (ctx.scope_stack.empty())
-				return exit_index;
-			ScopeFrame frame = ctx.scope_stack.back();
-			ctx.scope_stack.pop_back();
-			if (frame.runtime_scope)
-			{
-				if (frame.enter_instr < body.size())
-					body[frame.enter_instr].operands[0].s32_value = static_cast<s32>(frame.scope->slots.size());
-				exit_index = body.size();
-				emit(body, UdonInstruction::OpCode::EXIT_SCOPE);
-			}
-			return exit_index;
-		}
-
-		void emit_unwind_to_depth(FunctionContext& ctx, std::vector<UdonInstruction>& body, size_t target_depth)
-		{
-			if (target_depth > ctx.scope_stack.size())
-				target_depth = ctx.scope_stack.size();
-			for (size_t i = ctx.scope_stack.size(); i > target_depth; --i)
-			{
-				const ScopeFrame& frame = ctx.scope_stack[i - 1];
-				if (frame.runtime_scope)
-					emit(body, UdonInstruction::OpCode::EXIT_SCOPE);
-			}
-		}
-
-		s32 declare_variable(FunctionContext& ctx, const std::string& name)
-		{
-			if (ctx.scope_stack.empty())
-				return -1;
-			return ctx.current_scope().scope->declare(name);
-		}
-
-		bool resolve_variable(const FunctionContext& ctx, const std::string& name, ResolvedVariable& out) const
-		{
-			for (int i = static_cast<int>(ctx.scope_stack.size()) - 1; i >= 0; --i)
-			{
-				const auto& scope = ctx.scope_stack[static_cast<size_t>(i)].scope;
-				auto it = scope->slots.find(name);
-				if (it != scope->slots.end())
-				{
-					out.is_global = false;
-					out.depth = static_cast<s32>(ctx.scope_stack.size() - 1 - static_cast<size_t>(i));
-					out.slot = it->second;
-					out.name = name;
-					return true;
-				}
-			}
-			for (size_t i = 0; i < ctx.enclosing_scopes.size(); ++i)
-			{
-				const auto& scope = ctx.enclosing_scopes[i];
-				auto it = scope->slots.find(name);
-				if (it != scope->slots.end())
-				{
-					out.is_global = false;
-					out.depth = static_cast<s32>(ctx.scope_stack.size() + i);
-					out.slot = it->second;
-					out.name = name;
-					return true;
-				}
-			}
-			if (globals.find(name) != globals.end() || chunk_globals.find(name) != chunk_globals.end())
-			{
-				out.is_global = true;
-				out.depth = 0;
-				out.slot = 0;
-				out.name = name;
-				return true;
-			}
-			return false;
-		}
-
-		void emit_load_var(std::vector<UdonInstruction>& body, const ResolvedVariable& var, const Token* tok = nullptr)
-		{
-			if (var.is_global)
-			{
-				emit(body, UdonInstruction::OpCode::LOAD_GLOBAL, { make_string(var.name) }, tok);
-			}
-			else
-			{
-				emit(body, UdonInstruction::OpCode::LOAD_LOCAL, { make_int(var.depth), make_int(var.slot) }, tok);
-			}
-		}
-
-		void emit_store_var(std::vector<UdonInstruction>& body, const ResolvedVariable& var, const Token* tok = nullptr)
-		{
-			if (var.is_global)
-				emit(body, UdonInstruction::OpCode::STORE_GLOBAL, { make_string(var.name) }, tok);
-			else
-				emit(body, UdonInstruction::OpCode::STORE_LOCAL, { make_int(var.depth), make_int(var.slot) }, tok);
-		}
-
-		bool is_end() const
-		{
-			return peek().type == Token::Type::EndOfFile;
-		}
-
-		const Token& peek() const
-		{
-			return tokens[current];
-		}
-
-		const Token& previous() const
-		{
-			return tokens[current - 1];
-		}
-
-		const Token& advance()
-		{
-			if (!is_end())
-				current++;
-			return previous();
-		}
-
-		bool check_symbol(const std::string& text) const
-		{
-			if (is_end())
-				return false;
-			const auto& t = peek();
-			return t.type == Token::Type::Symbol && t.text == text;
-		}
-
-		bool match_symbol(const std::string& text)
-		{
-			if (check_symbol(text))
-			{
-				advance();
-				return true;
-			}
-			return false;
-		}
-
-		bool match_keyword(const std::string& text)
-		{
-			if (is_end())
-				return false;
-			const auto& t = peek();
-			if (t.type == Token::Type::Keyword && t.text == text)
-			{
-				advance();
-				return true;
-			}
-			return false;
-		}
-
-		CodeLocation make_error(const Token& t, const std::string& msg)
-		{
-			error_location.has_error = true;
-			error_location.line = t.line;
-			error_location.column = t.column;
-			error_location.opt_error_message = msg;
-			return error_location;
-		}
-
-		bool expect_symbol(const std::string& sym, const std::string& message)
-		{
-			if (match_symbol(sym))
-				return true;
-			make_error(peek(), message);
-			return false;
-		}
-
-		void skip_semicolons()
-		{
-			while (match_symbol(";"))
-				;
-		}
-
-		bool is_declared(const FunctionContext& ctx, const std::string& name, ResolvedVariable* resolved = nullptr) const
-		{
-			ResolvedVariable tmp;
-			if (resolve_variable(ctx, name, tmp))
-			{
-				if (resolved)
-					*resolved = tmp;
-				return true;
-			}
-			return false;
-		}
-
-		bool parse_global_var()
-		{
-			if (peek().type != Token::Type::Identifier)
-				return !make_error(peek(), "Expected variable name").has_error;
-			const std::string name = advance().text;
-			if (globals.find(name) != globals.end())
-				return !make_error(previous(), "Global '" + name + "' already declared").has_error;
-			if (match_symbol(":"))
-				advance();
-			globals.insert(name);
-
-			if (match_symbol("="))
-			{
-				FunctionContext dummy_ctx;
-				if (!parse_expression(global_init, dummy_ctx))
-					return false;
-			}
-			else
-			{
-				emit(global_init, UdonInstruction::OpCode::PUSH_LITERAL, { make_none() });
-			}
-			emit(global_init, UdonInstruction::OpCode::STORE_GLOBAL, { make_string(name) });
-			return true;
-		}
-
-		bool parse_function()
-		{
-			if (is_end())
-				return false;
-			std::string function_name;
-			bool is_event_handler = false;
-			std::string on_target;
-
-			auto maybe_event = [&](bool already_consumed_on)
-			{
-				if (!match_symbol(":"))
-					return !make_error(peek(), "Expected ':' after on").has_error;
-				if (peek().type != Token::Type::Identifier)
-					return !make_error(peek(), "Expected event name after on:").has_error;
-				on_target = advance().text;
-				is_event_handler = true;
-				if (!already_consumed_on)
-					function_name.clear();
-				return true;
-			};
-
-			if (peek().type == Token::Type::Identifier)
-			{
-				if (peek().text == "on" && tokens.size() > current + 1 && tokens[current + 1].type == Token::Type::Symbol && tokens[current + 1].text == ":")
-				{
-					advance(); // consume 'on'
-					if (!maybe_event(true))
-						return false;
-				}
-				else
-				{
-					function_name = advance().text;
-					if ((function_name == "on") && tokens.size() > current && tokens[current].type == Token::Type::Symbol && tokens[current].text == ":")
-					{
-						if (!maybe_event(true))
-							return false;
-						function_name.clear();
-					}
-					else if (!is_event_handler && tokens.size() > current + 1 && peek().type == Token::Type::Identifier && peek().text == "on" && tokens[current + 1].type == Token::Type::Symbol && tokens[current + 1].text == ":")
-					{
-						advance(); // consume 'on'
-						if (!maybe_event(true))
-							return false;
-					}
-				}
-			}
-			else if (match_keyword("on"))
-			{
-				if (!maybe_event(true))
-					return false;
-			}
-
-			if (!is_event_handler && (match_keyword("on") || match_symbol("on")))
-			{
-				if (!maybe_event(false))
-					return false;
-			}
-
-			if (function_name.empty())
-			{
-				function_name = "_anon_" + std::to_string(instructions.size());
-			}
-
-			if (!expect_symbol("(", "Expected '(' after function name"))
-				return false;
-
-			std::vector<std::string> param_names;
-			std::string variadic_param;
-			if (!match_symbol(")"))
-			{
-				do
-				{
-					if (peek().type != Token::Type::Identifier)
-						return !make_error(peek(), "Expected parameter name").has_error;
-					param_names.push_back(advance().text);
-					if (match_symbol(":"))
-					{
-						advance();
-					}
-					if (match_symbol("..."))
-					{
-						variadic_param = param_names.back();
-						break;
-					}
-				} while (match_symbol(","));
-				if (!expect_symbol(")", "Expected ')' after parameters"))
-					return false;
-			}
-
-			if (match_symbol("->"))
-			{
-				advance();
-			}
-
-			if (!expect_symbol("{", "Expected '{' to start function body"))
-				return false;
-
-			std::vector<UdonInstruction> body;
-			FunctionContext fn_ctx;
-			begin_scope(fn_ctx, body, false, &previous());
-			for (const auto& p : param_names)
-			{
-				s32 slot = declare_variable(fn_ctx, p);
-				fn_ctx.param_slot_indices.push_back(slot);
-				if (!variadic_param.empty() && p == variadic_param)
-					fn_ctx.variadic_slot_index = slot;
-			}
-
-			while (!is_end())
-			{
-				skip_semicolons();
-				if (match_symbol("}"))
-					break;
-				if (!parse_statement(body, fn_ctx))
-					return false;
-			}
-			if (is_end() && previous().text != "}")
-			{
-				return !make_error(previous(), "Missing closing '}'").has_error;
-			}
-			instructions[function_name] = body;
-			params[function_name] = param_names;
-			param_slots[function_name] = fn_ctx.param_slot_indices;
-			scope_sizes[function_name] = fn_ctx.root_slot_count();
-			if (fn_ctx.variadic_slot_index >= 0)
-				variadic_slot[function_name] = fn_ctx.variadic_slot_index;
-			if (!variadic_param.empty())
-				variadic[function_name] = variadic_param;
-			if (is_event_handler)
-			{
-				events["on:" + on_target].push_back(function_name);
-			}
-			return true;
-		}
-
-		void emit(std::vector<UdonInstruction>& body, UdonInstruction::OpCode op, const std::vector<Value>& operands = {}, const Token* tok = nullptr)
-		{
-			UdonInstruction i{};
-			i.opcode = op;
-			i.operands = operands;
-			const Token* loc_tok = tok;
-			if (!loc_tok && current > 0)
-				loc_tok = &previous();
-			if (loc_tok)
-			{
-				i.line = loc_tok->line;
-				i.column = loc_tok->column;
-			}
-			body.push_back(i);
-		}
-
-		bool parse_block(std::vector<UdonInstruction>& body, FunctionContext& ctx, bool create_scope = true)
-		{
-			if (!expect_symbol("{", "Expected '{' to start block"))
-				return false;
-			if (create_scope)
-				begin_scope(ctx, body, true, &previous());
-			while (!is_end())
-			{
-				skip_semicolons();
-				if (match_symbol("}"))
-					break;
-				if (!parse_statement(body, ctx))
-					return false;
-			}
-			if (is_end())
-				return !make_error(previous(), "Missing closing '}'").has_error;
-			if (create_scope)
-				end_scope(ctx, body);
-			return true;
-		}
-
-		bool parse_statement_or_block(std::vector<UdonInstruction>& body, FunctionContext& ctx, bool create_scope = true)
-		{
-			if (check_symbol("{"))
-				return parse_block(body, ctx, create_scope);
-			return parse_statement(body, ctx);
-		}
-
-		bool parse_statement(std::vector<UdonInstruction>& body, FunctionContext& ctx)
-		{
-			skip_semicolons();
-			if (match_keyword("if"))
-			{
-				begin_scope(ctx, body, true, &previous());
-				if (!expect_symbol("(", "Expected '(' after if"))
-					return false;
-				if (!parse_expression(body, ctx))
-					return false;
-				if (!expect_symbol(")", "Expected ')' after if condition"))
-					return false;
-
-				size_t jmp_false_index = body.size();
-				emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
-
-				if (!parse_statement_or_block(body, ctx, false))
-					return false;
-
-				size_t jmp_end_index = body.size();
-				emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
-
-				body[jmp_false_index].operands[0].s32_value = static_cast<s32>(body.size());
-
-				skip_semicolons();
-				if (match_keyword("else"))
-				{
-					if (!parse_statement_or_block(body, ctx, false))
-						return false;
-				}
-				body[jmp_end_index].operands[0].s32_value = static_cast<s32>(body.size());
-				end_scope(ctx, body);
-				return true;
-			}
-			if (match_keyword("while"))
-			{
-				begin_scope(ctx, body, true, &previous());
-				if (!expect_symbol("(", "Expected '(' after while"))
-					return false;
-				size_t cond_index = body.size();
-				if (!parse_expression(body, ctx))
-					return false;
-				if (!expect_symbol(")", "Expected ')' after while condition"))
-					return false;
-
-				size_t jmp_false_index = body.size();
-				emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
-
-				loop_stack.push_back({});
-				loop_stack.back().continue_target = static_cast<size_t>(cond_index);
-				loop_stack.back().allow_continue = true;
-				loop_stack.back().scope_depth = ctx.scope_stack.size();
-				if (!parse_statement_or_block(body, ctx, false))
-					return false;
-				for (size_t ci : loop_stack.back().continue_jumps)
-					body[ci].operands[0].s32_value = static_cast<s32>(cond_index);
-				emit(body, UdonInstruction::OpCode::JUMP, { make_int(static_cast<s32>(cond_index)) });
-				size_t exit_index = end_scope(ctx, body);
-				body[jmp_false_index].operands[0].s32_value = static_cast<s32>(exit_index);
-				for (size_t bi : loop_stack.back().break_jumps)
-					body[bi].operands[0].s32_value = static_cast<s32>(exit_index);
-				loop_stack.pop_back();
-				return true;
-			}
-
-			if (match_keyword("for"))
-			{
-				if (!expect_symbol("(", "Expected '(' after for"))
-					return false;
-				begin_scope(ctx, body, true, &previous());
-
-				if (!match_symbol(";"))
-				{
-					if (match_keyword("var"))
-					{
-						if (peek().type != Token::Type::Identifier)
-							return !make_error(peek(), "Expected variable name").has_error;
-						const std::string name = advance().text;
-						declare_variable(ctx, name);
-						ResolvedVariable init_var;
-						resolve_variable(ctx, name, init_var);
-						if (match_symbol(":"))
-							advance();
-						if (match_symbol("="))
-						{
-							if (!parse_expression(body, ctx))
-								return false;
-						}
-						else
-						{
-							emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_none() });
-						}
-						emit_store_var(body, init_var);
-						if (!expect_symbol(";", "Expected ';' after for init"))
-							return false;
-					}
-					else
-					{
-						bool produced = false;
-						if (!parse_assignment_or_expression(body, ctx, produced))
-							return false;
-						if (produced)
-							emit(body, UdonInstruction::OpCode::POP);
-						if (!expect_symbol(";", "Expected ';' after for init"))
-							return false;
-					}
-				}
-
-				size_t cond_index = body.size();
-				if (!match_symbol(";"))
-				{
-					if (!parse_expression(body, ctx))
-						return false;
-					if (!expect_symbol(";", "Expected ';' after for condition"))
-						return false;
-				}
-				else
-				{
-					emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(1) });
-				}
-				size_t jmp_false_index = body.size();
-				emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
-
-				std::vector<UdonInstruction> increment_code;
-				if (!match_symbol(")"))
-				{
-					bool produced = false;
-					if (!parse_assignment_or_expression(increment_code, ctx, produced))
-						return false;
-					if (produced)
-						emit(increment_code, UdonInstruction::OpCode::POP);
-					if (!expect_symbol(")", "Expected ')' after for increment"))
-						return false;
-				}
-
-				loop_stack.push_back({});
-				loop_stack.back().allow_continue = true;
-				loop_stack.back().scope_depth = ctx.scope_stack.size();
-				if (!parse_statement_or_block(body, ctx))
-					return false;
-				size_t continue_target = body.size();
-				for (size_t ci : loop_stack.back().continue_jumps)
-					body[ci].operands[0].s32_value = static_cast<s32>(continue_target);
-				body.insert(body.end(), increment_code.begin(), increment_code.end());
-				emit(body, UdonInstruction::OpCode::JUMP, { make_int(static_cast<s32>(cond_index)) });
-				size_t exit_index = end_scope(ctx, body);
-				body[jmp_false_index].operands[0].s32_value = static_cast<s32>(exit_index);
-				for (size_t bi : loop_stack.back().break_jumps)
-					body[bi].operands[0].s32_value = static_cast<s32>(exit_index);
-				loop_stack.pop_back();
-				return true;
-			}
-
-			if (match_keyword("foreach"))
-			{
-				if (!expect_symbol("(", "Expected '(' after foreach"))
-					return false;
-				begin_scope(ctx, body, true, &previous());
-				bool declared = match_keyword("var");
-				if (peek().type != Token::Type::Identifier)
-					return !make_error(peek(), "Expected iterator variable name").has_error;
-				std::string key_name = advance().text;
-				ResolvedVariable key_var;
-				if (declared)
-				{
-					declare_variable(ctx, key_name);
-					resolve_variable(ctx, key_name, key_var);
-				}
-				else if (!resolve_variable(ctx, key_name, key_var))
-				{
-					return !make_error(previous(), "Undeclared variable '" + key_name + "'").has_error;
-				}
-
-				std::string value_name;
-				ResolvedVariable value_var;
-				bool has_value = false;
-				if (match_symbol(","))
-				{
-					if (peek().type != Token::Type::Identifier)
-						return !make_error(peek(), "Expected value variable name after ','").has_error;
-					value_name = advance().text;
-					if (declared)
-					{
-						declare_variable(ctx, value_name);
-						resolve_variable(ctx, value_name, value_var);
-					}
-					else if (!resolve_variable(ctx, value_name, value_var))
-					{
-						return !make_error(previous(), "Undeclared variable '" + value_name + "'").has_error;
-					}
-					has_value = true;
-				}
-
-				if (!match_keyword("in"))
-					return !make_error(peek(), "Expected 'in' in foreach").has_error;
-				std::string collection_tmp = "__foreach_coll_" + std::to_string(body.size());
-				std::string keys_tmp = "__foreach_keys_" + std::to_string(body.size());
-				std::string idx_tmp = "__foreach_i_" + std::to_string(body.size());
-				declare_variable(ctx, collection_tmp);
-				declare_variable(ctx, keys_tmp);
-				declare_variable(ctx, idx_tmp);
-				ResolvedVariable coll_var;
-				ResolvedVariable keys_var;
-				ResolvedVariable idx_var;
-				resolve_variable(ctx, collection_tmp, coll_var);
-				resolve_variable(ctx, keys_tmp, keys_var);
-				resolve_variable(ctx, idx_tmp, idx_var);
-
-				if (!parse_expression(body, ctx))
-					return false;
-				emit_store_var(body, coll_var);
-
-				emit_load_var(body, coll_var);
-				std::vector<Value> call_ops;
-				call_ops.push_back(make_string("keys"));
-				call_ops.push_back(make_int(1));
-				call_ops.push_back(make_string(""));
-				emit(body, UdonInstruction::OpCode::CALL, call_ops);
-				emit_store_var(body, keys_var);
-
-				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(0) });
-				emit_store_var(body, idx_var);
-
-				if (!expect_symbol(")", "Expected ')' after foreach header"))
-					return false;
-
-				size_t cond_index = body.size();
-				emit_load_var(body, idx_var);
-				emit_load_var(body, keys_var);
-				std::vector<Value> len_ops;
-				len_ops.push_back(make_string("len"));
-				len_ops.push_back(make_int(1));
-				len_ops.push_back(make_string(""));
-				emit(body, UdonInstruction::OpCode::CALL, len_ops);
-				emit(body, UdonInstruction::OpCode::LT);
-				size_t jmp_false_index = body.size();
-				emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
-
-				emit_load_var(body, keys_var);
-				emit_load_var(body, idx_var);
-				std::vector<Value> get_key_ops;
-				get_key_ops.push_back(make_string("array_get"));
-				get_key_ops.push_back(make_int(2));
-				get_key_ops.push_back(make_string(""));
-				get_key_ops.push_back(make_string(""));
-				emit(body, UdonInstruction::OpCode::CALL, get_key_ops);
-				emit_store_var(body, key_var);
-
-				if (has_value)
-				{
-					emit_load_var(body, coll_var);
-					emit_load_var(body, key_var);
-					std::vector<Value> get_val_ops;
-					get_val_ops.push_back(make_string("array_get"));
-					get_val_ops.push_back(make_int(2));
-					get_val_ops.push_back(make_string(""));
-					get_val_ops.push_back(make_string(""));
-					emit(body, UdonInstruction::OpCode::CALL, get_val_ops);
-					emit_store_var(body, value_var);
-				}
-
-				loop_stack.push_back({});
-				loop_stack.back().allow_continue = true;
-				loop_stack.back().scope_depth = ctx.scope_stack.size();
-				if (!parse_block(body, ctx))
-					return false;
-
-				emit_load_var(body, idx_var);
-				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(1) });
-				emit(body, UdonInstruction::OpCode::ADD);
-				emit_store_var(body, idx_var);
-
-				size_t continue_target = body.size();
-				for (size_t ci : loop_stack.back().continue_jumps)
-					body[ci].operands[0].s32_value = static_cast<s32>(continue_target);
-				emit(body, UdonInstruction::OpCode::JUMP, { make_int(static_cast<s32>(cond_index)) });
-				size_t exit_index = end_scope(ctx, body);
-				body[jmp_false_index].operands[0].s32_value = static_cast<s32>(exit_index);
-				for (size_t bi : loop_stack.back().break_jumps)
-					body[bi].operands[0].s32_value = static_cast<s32>(exit_index);
-				loop_stack.pop_back();
-				return true;
-			}
-
-			if (match_keyword("switch"))
-			{
-				if (!expect_symbol("(", "Expected '(' after switch"))
-					return false;
-				begin_scope(ctx, body, true, &previous());
-				std::string tmp_name = "__switch_val_" + std::to_string(body.size());
-				declare_variable(ctx, tmp_name);
-				ResolvedVariable tmp_var;
-				resolve_variable(ctx, tmp_name, tmp_var);
-				if (!parse_expression(body, ctx))
-					return false;
-				if (!expect_symbol(")", "Expected ')' after switch expression"))
-					return false;
-				emit_store_var(body, tmp_var);
-				if (!expect_symbol("{", "Expected '{' after switch header"))
-					return false;
-
-				loop_stack.push_back({});
-				loop_stack.back().allow_continue = false;
-				loop_stack.back().scope_depth = ctx.scope_stack.size();
-
-				bool has_default = false;
-				while (!is_end() && !check_symbol("}"))
-				{
-					skip_semicolons();
-					if (check_symbol("}"))
-						break;
-					if (match_keyword("case"))
-					{
-						if (peek().type != Token::Type::Number && peek().type != Token::Type::String && peek().type != Token::Type::Identifier && peek().type != Token::Type::Keyword)
-							return !make_error(peek(), "Expected literal after case").has_error;
-						Value case_val;
-						if (peek().type == Token::Type::Number)
-						{
-							const std::string num_text = advance().text;
-							case_val = (num_text.find('.') != std::string::npos)
-										   ? make_float(static_cast<f32>(std::stof(num_text)))
-										   : make_int(static_cast<s32>(std::stoi(num_text)));
-						}
-						else if (peek().type == Token::Type::String)
-						{
-							case_val = make_string(advance().text);
-						}
-						else
-						{
-							std::string kw = advance().text;
-							if (kw == "true")
-								case_val = make_bool(true);
-							else if (kw == "false")
-								case_val = make_bool(false);
-							else
-								case_val = make_string(kw);
-						}
-						if (!expect_symbol(":", "Expected ':' after case value"))
-							return false;
-
-						emit_load_var(body, tmp_var);
-						emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { case_val });
-						emit(body, UdonInstruction::OpCode::EQ);
-						size_t jz_index = body.size();
-						emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
-
-						while (!is_end())
-						{
-							skip_semicolons();
-							if (check_symbol("}"))
-								break;
-							if (peek().type == Token::Type::Keyword && (peek().text == "case" || peek().text == "default"))
-								break;
-							if (!parse_statement(body, ctx))
-								return false;
-						}
-
-						size_t end_jump = body.size();
-						emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
-						body[jz_index].operands[0].s32_value = static_cast<s32>(body.size());
-						loop_stack.back().break_jumps.push_back(end_jump);
-					}
-					else if (match_keyword("default"))
-					{
-						if (has_default)
-							return !make_error(previous(), "Multiple default labels").has_error;
-						has_default = true;
-						if (!expect_symbol(":", "Expected ':' after default"))
-							return false;
-						while (!is_end())
-						{
-							skip_semicolons();
-							if (check_symbol("}"))
-								break;
-							if (peek().type == Token::Type::Keyword && (peek().text == "case"))
-								break;
-							if (!parse_statement(body, ctx))
-								return false;
-						}
-					}
-					else
-					{
-						return !make_error(peek(), "Expected case/default or '}' in switch").has_error;
-					}
-				}
-				if (!expect_symbol("}", "Expected '}' to close switch"))
-					return false;
-				size_t exit_index = end_scope(ctx, body);
-				for (size_t bi : loop_stack.back().break_jumps)
-					body[bi].operands[0].s32_value = static_cast<s32>(exit_index);
-				loop_stack.pop_back();
-				return true;
-			}
-			if (match_keyword("return"))
-			{
-				size_t value_count = 0;
-				if (match_symbol("("))
-				{
-					if (match_symbol(")"))
-						return !make_error(previous(), "return requires a value").has_error;
-					do
-					{
-						if (!parse_expression(body, ctx))
-							return false;
-						value_count++;
-					} while (match_symbol(","));
-					if (!expect_symbol(")", "Expected ')' after return value"))
-						return false;
-				}
-				else
-				{
-					if (check_symbol("}") || is_end())
-						return !make_error(previous(), "return requires a value").has_error;
-					if (!parse_expression(body, ctx))
-						return false;
-					value_count = 1;
-				}
-				if (value_count == 0)
-				{
-					return !make_error(previous(), "return requires a value").has_error;
-				}
-				else if (value_count > 1)
-				{
-					std::vector<Value> ops;
-					ops.push_back(make_string("array"));
-					ops.push_back(make_int(static_cast<s32>(value_count)));
-					for (size_t i = 0; i < value_count; ++i)
-						ops.push_back(make_string(""));
-					emit(body, UdonInstruction::OpCode::CALL, ops);
-				}
-				emit(body, UdonInstruction::OpCode::RETURN);
-				return true;
-			}
-
-			if (match_keyword("break"))
-			{
-				if (loop_stack.empty())
-					return !make_error(previous(), "break outside of loop/switch").has_error;
-				size_t target_depth = loop_stack.back().scope_depth;
-				emit_unwind_to_depth(ctx, body, target_depth);
-				size_t jmp_idx = body.size();
-				emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
-				loop_stack.back().break_jumps.push_back(jmp_idx);
-				return true;
-			}
-
-			if (match_keyword("continue"))
-			{
-				if (loop_stack.empty() || !loop_stack.back().allow_continue)
-					return !make_error(previous(), "continue outside of loop").has_error;
-				size_t target_depth = loop_stack.back().scope_depth;
-				emit_unwind_to_depth(ctx, body, target_depth);
-				size_t jmp_idx = body.size();
-				emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
-				loop_stack.back().continue_jumps.push_back(jmp_idx);
-				return true;
-			}
-
-			bool produced = false;
-			if (!parse_assignment_or_expression(body, ctx, produced))
-				return false;
-			if (produced)
-				emit(body, UdonInstruction::OpCode::POP);
-			return true;
-		}
-
-		bool parse_expression(std::vector<UdonInstruction>& body, FunctionContext& ctx)
-		{
-			bool produced = true;
-			return parse_assignment_or_expression(body, ctx, produced);
-		}
-
-		bool parse_or(std::vector<UdonInstruction>& body, FunctionContext& ctx)
-		{
-			if (!parse_and(body, ctx))
-				return false;
-			while (match_symbol("||"))
-			{
-				emit(body, UdonInstruction::OpCode::TO_BOOL);
-				size_t jz_index = body.size();
-				emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
-				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_bool(true) });
-				size_t jmp_end = body.size();
-				emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
-				body[jz_index].operands[0].s32_value = static_cast<s32>(body.size());
-				if (!parse_and(body, ctx))
-					return false;
-				emit(body, UdonInstruction::OpCode::TO_BOOL);
-				body[jmp_end].operands[0].s32_value = static_cast<s32>(body.size());
-			}
-			return true;
-		}
-
-		bool parse_and(std::vector<UdonInstruction>& body, FunctionContext& ctx)
-		{
-			if (!parse_equality(body, ctx))
-				return false;
-			while (match_symbol("&&"))
-			{
-				emit(body, UdonInstruction::OpCode::TO_BOOL);
-				size_t jz_index = body.size();
-				emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
-				if (!parse_equality(body, ctx))
-					return false;
-				emit(body, UdonInstruction::OpCode::TO_BOOL);
-				size_t jmp_end = body.size();
-				emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
-				body[jz_index].operands[0].s32_value = static_cast<s32>(body.size());
-				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_bool(false) });
-				body[jmp_end].operands[0].s32_value = static_cast<s32>(body.size());
-			}
-			return true;
-		}
-
-		bool parse_equality(std::vector<UdonInstruction>& body, FunctionContext& ctx)
-		{
-			if (!parse_comparison(body, ctx))
-				return false;
-			while (true)
-			{
-				if (match_symbol("=="))
-				{
-					if (!parse_comparison(body, ctx))
-						return false;
-					emit(body, UdonInstruction::OpCode::EQ);
-				}
-				else if (match_symbol("!="))
-				{
-					if (!parse_comparison(body, ctx))
-						return false;
-					emit(body, UdonInstruction::OpCode::NEQ);
-				}
-				else
-				{
-					break;
-				}
-			}
-			return true;
-		}
-
-		bool parse_comparison(std::vector<UdonInstruction>& body, FunctionContext& ctx)
-		{
-			if (!parse_additive(body, ctx))
-				return false;
-			while (true)
-			{
-				if (match_symbol("<"))
-				{
-					if (!parse_additive(body, ctx))
-						return false;
-					emit(body, UdonInstruction::OpCode::LT);
-				}
-				else if (match_symbol(">"))
-				{
-					if (!parse_additive(body, ctx))
-						return false;
-					emit(body, UdonInstruction::OpCode::GT);
-				}
-				else if (match_symbol("<="))
-				{
-					if (!parse_additive(body, ctx))
-						return false;
-					emit(body, UdonInstruction::OpCode::LTE);
-				}
-				else if (match_symbol(">="))
-				{
-					if (!parse_additive(body, ctx))
-						return false;
-					emit(body, UdonInstruction::OpCode::GTE);
-				}
-				else
-				{
-					break;
-				}
-			}
-			return true;
-		}
-
-		bool parse_assignment_or_expression(std::vector<UdonInstruction>& body, FunctionContext& ctx, bool& produced_value)
-		{
-			auto destructure_assign = [&](const std::vector<std::string>& names, bool allow_new, bool push_first_value) -> bool
-			{
-				const std::string tmp_name = "__tuple_tmp_" + std::to_string(body.size());
-				declare_variable(ctx, tmp_name);
-				ResolvedVariable tmp_var;
-				resolve_variable(ctx, tmp_name, tmp_var);
-				emit_store_var(body, tmp_var);
-
-				auto load_element = [&](size_t idx, bool use_index)
-				{
-					emit_load_var(body, tmp_var);
-					if (use_index)
-					{
-						emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(static_cast<s32>(idx)) });
-						emit(body, UdonInstruction::OpCode::GET_PROP, { make_string("[index]") });
-					}
-				};
-
-				const bool use_indexing = names.size() > 1;
-				for (size_t i = 0; i < names.size(); ++i)
-				{
-					const std::string& name = names[i];
-					if (name == "_")
-						continue;
-					ResolvedVariable target;
-					if (!allow_new && !resolve_variable(ctx, name, target))
-						return !make_error(previous(), "Undeclared variable '" + name + "'").has_error;
-					if (allow_new)
-					{
-						declare_variable(ctx, name);
-						resolve_variable(ctx, name, target);
-					}
-					load_element(i, use_indexing);
-					emit_store_var(body, target);
-				}
-
-				if (push_first_value)
-				{
-					if (names.empty())
-					{
-						emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_none() });
-					}
-					else
-					{
-						load_element(0, use_indexing);
-					}
-				}
-				return true;
-			};
-
-			if (match_keyword("var"))
-			{
-				std::vector<std::string> names;
-				do
-				{
-					if (peek().type != Token::Type::Identifier)
-						return !make_error(peek(), "Expected variable name").has_error;
-					names.push_back(advance().text);
-					if (match_symbol(":"))
-						advance();
-				} while (match_symbol(","));
-
-				if (match_symbol("="))
-				{
-					if (!parse_expression(body, ctx))
-						return false;
-					if (!destructure_assign(names, true, true))
-						return false;
-				}
-				else
-				{
-					for (const auto& n : names)
-					{
-						if (n == "_")
-							continue;
-						declare_variable(ctx, n);
-						ResolvedVariable var_ref;
-						resolve_variable(ctx, n, var_ref);
-						emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_none() });
-						emit_store_var(body, var_ref);
-					}
-					emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_none() });
-				}
-				produced_value = true;
-				return true;
-			}
-
-			if (peek().type == Token::Type::Identifier)
-			{
-				size_t lookahead = current;
-				std::vector<std::string> names;
-				bool saw_comma = false;
-				while (lookahead < tokens.size() && tokens[lookahead].type == Token::Type::Identifier)
-				{
-					names.push_back(tokens[lookahead].text);
-					lookahead++;
-					if (lookahead < tokens.size() && tokens[lookahead].type == Token::Type::Symbol && tokens[lookahead].text == ",")
-					{
-						saw_comma = true;
-						lookahead++;
-						continue;
-					}
-					break;
-				}
-				if (saw_comma && lookahead < tokens.size() && tokens[lookahead].type == Token::Type::Symbol && tokens[lookahead].text == "=")
-				{
-					names.clear();
-					do
-					{
-						names.push_back(advance().text);
-					} while (match_symbol(","));
-					if (!expect_symbol("=", "Expected '=' in destructuring assignment"))
-						return false;
-					if (!parse_expression(body, ctx))
-						return false;
-					if (!destructure_assign(names, false, true))
-						return false;
-					produced_value = true;
-					return true;
-				}
-			}
-
-			if (peek().type == Token::Type::Identifier && tokens.size() > current + 2)
-			{
-				size_t la = current;
-				std::string base_name = tokens[la].text;
-				++la;
-				std::vector<std::string> prop_chain;
-				while (la + 1 < tokens.size() && tokens[la].type == Token::Type::Symbol && tokens[la].text == ":" &&
-					   (tokens[la + 1].type == Token::Type::Identifier || tokens[la + 1].type == Token::Type::String || tokens[la + 1].type == Token::Type::Number))
-				{
-					prop_chain.push_back(tokens[la + 1].text);
-					la += 2;
-				}
-				if (!prop_chain.empty() && la < tokens.size() && tokens[la].type == Token::Type::Symbol && tokens[la].text == "[")
-				{
-					int bracket_depth = 1;
-					size_t bracket_end = la + 1;
-					while (bracket_end < tokens.size() && bracket_depth > 0)
-					{
-						if (tokens[bracket_end].type == Token::Type::Symbol)
-						{
-							if (tokens[bracket_end].text == "[")
-								++bracket_depth;
-							else if (tokens[bracket_end].text == "]")
-								--bracket_depth;
-						}
-						if (bracket_depth > 0)
-							++bracket_end;
-					}
-					if (bracket_depth == 0 && bracket_end + 1 < tokens.size() &&
-						tokens[bracket_end + 1].type == Token::Type::Symbol && tokens[bracket_end + 1].text == "=")
-					{
-						advance(); // base identifier
-						ResolvedVariable base_ref;
-						if (!resolve_variable(ctx, base_name, base_ref))
-							return !make_error(previous(), "Undeclared variable '" + base_name + "'").has_error;
-						for (size_t i = 0; i < prop_chain.size(); ++i)
-						{
-							advance(); // ':'
-							advance(); // prop token
-						}
-						advance(); // '['
-						emit_load_var(body, base_ref);
-						for (const auto& prop : prop_chain)
-							emit(body, UdonInstruction::OpCode::GET_PROP, { make_string(prop) });
-						if (!parse_expression(body, ctx))
-							return false;
-						if (!expect_symbol("]", "Expected ']' after index"))
-							return false;
-						advance(); // '='
-						if (!parse_expression(body, ctx))
-							return false;
-						emit(body, UdonInstruction::OpCode::STORE_PROP, { make_string("[index]") });
-						produced_value = false;
-						return true;
-					}
-				}
-				if (!prop_chain.empty() && la < tokens.size() && tokens[la].type == Token::Type::Symbol && tokens[la].text == "=")
-				{
-					advance(); // base identifier
-					ResolvedVariable base_ref;
-					if (!resolve_variable(ctx, base_name, base_ref))
-						return !make_error(previous(), "Undeclared variable '" + base_name + "'").has_error;
-					for (size_t i = 0; i < prop_chain.size(); ++i)
-					{
-						advance(); // ':'
-						advance(); // prop token
-					}
-					advance(); // '='
-					emit_load_var(body, base_ref);
-					for (size_t i = 0; i + 1 < prop_chain.size(); ++i)
-						emit(body, UdonInstruction::OpCode::GET_PROP, { make_string(prop_chain[i]) });
-					if (!parse_expression(body, ctx))
-						return false;
-					emit(body, UdonInstruction::OpCode::STORE_PROP, { make_string(prop_chain.back()) });
-					produced_value = false;
-					return true;
-				}
-
-				size_t lookahead = current + 1;
-				if (tokens[lookahead].type == Token::Type::Symbol)
-				{
-					std::string next_sym = tokens[lookahead].text;
-					if (next_sym == ":" && lookahead + 2 < tokens.size())
-					{
-						if (tokens[lookahead + 2].type == Token::Type::Symbol && tokens[lookahead + 2].text == "=")
-						{
-							std::string obj_name = advance().text;
-							ResolvedVariable obj_ref;
-							if (!resolve_variable(ctx, obj_name, obj_ref))
-								return !make_error(previous(), "Undeclared variable '" + obj_name + "'").has_error;
-							advance(); // ':'
-							if (peek().type != Token::Type::Identifier && peek().type != Token::Type::String && peek().type != Token::Type::Number)
-								return !make_error(peek(), "Expected property name after ':'").has_error;
-							std::string prop_name = advance().text;
-							advance(); // '='
-							emit_load_var(body, obj_ref);
-							if (!parse_expression(body, ctx))
-								return false;
-							emit(body, UdonInstruction::OpCode::STORE_PROP, { make_string(prop_name) });
-							produced_value = false;
-							return true;
-						}
-					}
-					else if (next_sym == "[")
-					{
-						int bracket_depth = 1;
-						size_t bracket_end = lookahead + 1;
-						while (bracket_end < tokens.size() && bracket_depth > 0)
-						{
-							if (tokens[bracket_end].type == Token::Type::Symbol)
-							{
-								if (tokens[bracket_end].text == "[")
-									bracket_depth++;
-								else if (tokens[bracket_end].text == "]")
-									bracket_depth--;
-							}
-							if (bracket_depth > 0)
-								bracket_end++;
-						}
-						if (bracket_depth == 0 && bracket_end + 1 < tokens.size() &&
-							tokens[bracket_end + 1].type == Token::Type::Symbol && tokens[bracket_end + 1].text == "=")
-						{
-							std::string obj_name = advance().text;
-							ResolvedVariable obj_ref;
-							if (!resolve_variable(ctx, obj_name, obj_ref))
-								return !make_error(previous(), "Undeclared variable '" + obj_name + "'").has_error;
-							advance(); // '['
-							emit_load_var(body, obj_ref);
-							if (!parse_expression(body, ctx))
-								return false;
-							if (!expect_symbol("]", "Expected ']' after index"))
-								return false;
-							advance(); // '='
-							if (!parse_expression(body, ctx))
-								return false;
-							emit(body, UdonInstruction::OpCode::STORE_PROP, { make_string("[index]") });
-							produced_value = false;
-							return true;
-						}
-					}
-				}
-			}
-
-			if (peek().type == Token::Type::Identifier && tokens.size() > current + 1 && tokens[current + 1].type == Token::Type::Symbol)
-			{
-				const std::string name = advance().text;
-				std::string op = tokens[current].text;
-				if (op == "=" || op == "+=" || op == "-=" || op == "*=" || op == "/=")
-				{
-					ResolvedVariable var_ref;
-					if (!resolve_variable(ctx, name, var_ref))
-						return !make_error(previous(), "Undeclared variable '" + name + "'").has_error;
-					advance();
-					if (op != "=")
-						emit_load_var(body, var_ref);
-					if (!parse_expression(body, ctx))
-						return false;
-					if (op == "+=")
-						emit(body, UdonInstruction::OpCode::ADD);
-					else if (op == "-=")
-						emit(body, UdonInstruction::OpCode::SUB);
-					else if (op == "*=")
-						emit(body, UdonInstruction::OpCode::MUL);
-					else if (op == "/=")
-						emit(body, UdonInstruction::OpCode::DIV);
-					emit_store_var(body, var_ref);
-					produced_value = false;
-					return true;
-				}
-				current--; // rewind name consumption
-			}
-			produced_value = true;
-			return parse_or(body, ctx);
-		}
-		bool parse_additive(std::vector<UdonInstruction>& body, FunctionContext& ctx)
-		{
-			if (!parse_multiplicative(body, ctx))
-				return false;
-			while (true)
-			{
-				if (match_symbol("+"))
-				{
-					if (!parse_multiplicative(body, ctx))
-						return false;
-					emit(body, UdonInstruction::OpCode::ADD);
-				}
-				else if (match_symbol("-"))
-				{
-					if (!parse_multiplicative(body, ctx))
-						return false;
-					emit(body, UdonInstruction::OpCode::SUB);
-				}
-				else
-				{
-					break;
-				}
-			}
-			return true;
-		}
-
-		bool parse_multiplicative(std::vector<UdonInstruction>& body, FunctionContext& ctx)
-		{
-			if (!parse_unary(body, ctx))
-				return false;
-			while (true)
-			{
-				if (match_symbol("*"))
-				{
-					if (!parse_unary(body, ctx))
-						return false;
-					emit(body, UdonInstruction::OpCode::MUL);
-				}
-				else if (match_symbol("/"))
-				{
-					if (!parse_unary(body, ctx))
-						return false;
-					emit(body, UdonInstruction::OpCode::DIV);
-				}
-				else if (match_symbol("%"))
-				{
-					if (!parse_unary(body, ctx))
-						return false;
-					emit(body, UdonInstruction::OpCode::MOD);
-				}
-				else
-				{
-					break;
-				}
-			}
-			return true;
-		}
-
-		bool parse_unary(std::vector<UdonInstruction>& body, FunctionContext& ctx)
-		{
-			if (match_symbol("-"))
-			{
-				if (!parse_unary(body, ctx))
-					return false;
-				emit(body, UdonInstruction::OpCode::NEGATE);
-				return true;
-			}
-			if (match_symbol("!"))
-			{
-				if (!parse_unary(body, ctx))
-					return false;
-				emit(body, UdonInstruction::OpCode::TO_BOOL);
-				emit(body, UdonInstruction::OpCode::LOGICAL_NOT);
-				return true;
-			}
-			if (match_symbol("++") || match_symbol("--"))
-			{
-				bool inc = previous().text == "++";
-				if (peek().type != Token::Type::Identifier)
-					return !make_error(peek(), "Expected identifier after increment").has_error;
-				std::string name = advance().text;
-				ResolvedVariable var_ref;
-				if (!resolve_variable(ctx, name, var_ref))
-					return !make_error(previous(), "Undeclared variable '" + name + "'").has_error;
-				emit_load_var(body, var_ref);
-				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(1) });
-				emit(body, inc ? UdonInstruction::OpCode::ADD : UdonInstruction::OpCode::SUB);
-				emit_store_var(body, var_ref);
-				emit_load_var(body, var_ref);
-				return true;
-			}
-			return parse_primary(body, ctx);
-		}
-
-		bool parse_postfix(std::vector<UdonInstruction>& body, FunctionContext& ctx)
-		{
-			while (true)
-			{
-				if (match_symbol("."))
-				{
-					if (!parse_method_postfix(body, ctx))
-						return false;
-					continue;
-				}
-				if (match_symbol(":"))
-				{
-					if (!parse_key_postfix(body))
-						return false;
-					continue;
-				}
-				if (match_symbol("["))
-				{
-					if (!parse_expression(body, ctx))
-						return false;
-					if (!expect_symbol("]", "Expected ']' after index"))
-						return false;
-					emit(body, UdonInstruction::OpCode::GET_PROP, { make_string("[index]") });
-					continue;
-				}
-				if (match_symbol("("))
-				{
-					size_t arg_count = 0;
-					if (!match_symbol(")"))
-					{
-						do
-						{
-							if (!parse_expression(body, ctx))
-								return false;
-							arg_count++;
-						} while (match_symbol(","));
-						if (!expect_symbol(")", "Expected ')' after arguments"))
-							return false;
-					}
-					std::vector<Value> operands;
-					operands.push_back(make_string("")); // empty callee signals dynamic call using callable on stack
-					operands.push_back(make_int(static_cast<s32>(arg_count)));
-					emit(body, UdonInstruction::OpCode::CALL, operands);
-					continue;
-				}
-				break;
-			}
-			return true;
-		}
-
-		bool parse_method_postfix(std::vector<UdonInstruction>& body, FunctionContext& ctx)
-		{
-			if (peek().type != Token::Type::Identifier)
-				return !make_error(peek(), "Expected member name after '.'").has_error;
-			std::string member = advance().text;
-			if (!match_symbol("("))
-				return !make_error(peek(), "Expected '(' after method access").has_error;
-
-			std::vector<std::string> arg_names;
-			size_t arg_count = 1; // receiver already on stack
-			arg_names.push_back("");
-			if (!match_symbol(")"))
-			{
-				do
-				{
-					std::string arg_name;
-					if (peek().type == Token::Type::Identifier && tokens.size() > current + 1 && tokens[current + 1].type == Token::Type::Symbol && tokens[current + 1].text == "=")
-					{
-						arg_name = advance().text;
-						advance(); // '='
-					}
-					if (!parse_expression(body, ctx))
-						return false;
-					arg_names.push_back(arg_name);
-					arg_count++;
-				} while (match_symbol(","));
-				if (!expect_symbol(")", "Expected ')' after arguments"))
-					return false;
-			}
-			std::vector<Value> operands;
-			operands.push_back(make_string(member));
-			operands.push_back(make_int(static_cast<s32>(arg_count)));
-			for (const auto& n : arg_names)
-				operands.push_back(make_string(n));
-			emit(body, UdonInstruction::OpCode::CALL, operands);
-			return true;
-		}
-
-		bool parse_key_postfix(std::vector<UdonInstruction>& body)
-		{
-			if (peek().type != Token::Type::Identifier && peek().type != Token::Type::String && peek().type != Token::Type::Number)
-				return !make_error(peek(), "Expected key after ':'").has_error;
-			std::string key = advance().text;
-			emit(body, UdonInstruction::OpCode::GET_PROP, { make_string(key) });
-			return true;
-		}
-
-		bool parse_function_literal(std::vector<UdonInstruction>& body, FunctionContext& ctx)
-		{
-			if (!expect_symbol("(", "Expected '(' after function"))
-				return false;
-
-			std::vector<std::string> param_names;
-			std::string variadic_param;
-			if (!match_symbol(")"))
-			{
-				do
-				{
-					if (peek().type != Token::Type::Identifier)
-						return !make_error(peek(), "Expected parameter name").has_error;
-					param_names.push_back(advance().text);
-					if (match_symbol(":"))
-					{
-						advance();
-					}
-					if (match_symbol("..."))
-					{
-						variadic_param = param_names.back();
-						break;
-					}
-				} while (match_symbol(","));
-				if (!expect_symbol(")", "Expected ')' after parameters"))
-					return false;
-			}
-
-			if (match_symbol("->"))
-			{
-				advance();
-			}
-
-			if (!expect_symbol("{", "Expected '{' to start function body"))
-				return false;
-
-			std::vector<UdonInstruction> fn_body;
-			FunctionContext fn_ctx;
-			for (auto it = ctx.scope_stack.rbegin(); it != ctx.scope_stack.rend(); ++it)
-				fn_ctx.enclosing_scopes.push_back(it->scope);
-			for (const auto& enc : ctx.enclosing_scopes)
-				fn_ctx.enclosing_scopes.push_back(enc);
-
-			begin_scope(fn_ctx, fn_body, false, &previous());
-			for (const auto& p : param_names)
-			{
-				s32 slot = declare_variable(fn_ctx, p);
-				fn_ctx.param_slot_indices.push_back(slot);
-				if (!variadic_param.empty() && p == variadic_param)
-					fn_ctx.variadic_slot_index = slot;
-			}
-
-			LoopGuard loop_guard(loop_stack, true);
-
-			while (!is_end())
-			{
-				skip_semicolons();
-				if (match_symbol("}"))
-					break;
-				if (!parse_statement(fn_body, fn_ctx))
-				{
-					return false;
-				}
-			}
-			if (is_end() && previous().text != "}")
-			{
-				return !make_error(previous(), "Missing closing '}'").has_error;
-			}
-			std::string fn_name = "__lambda_" + std::to_string(lambda_counter++);
-			instructions[fn_name] = fn_body;
-			params[fn_name] = param_names;
-			param_slots[fn_name] = fn_ctx.param_slot_indices;
-			scope_sizes[fn_name] = fn_ctx.root_slot_count();
-			if (fn_ctx.variadic_slot_index >= 0)
-				variadic_slot[fn_name] = fn_ctx.variadic_slot_index;
-			if (!variadic_param.empty())
-				variadic[fn_name] = variadic_param;
-
-			emit(body, UdonInstruction::OpCode::MAKE_CLOSURE, { make_string(fn_name) });
-			return true;
-		}
-
-		bool parse_primary(std::vector<UdonInstruction>& body, FunctionContext& ctx)
-		{
-			if (match_keyword("function"))
-			{
-				if (!parse_function_literal(body, ctx))
-					return false;
-				return parse_postfix(body, ctx);
-			}
-
-			if (peek().type == Token::Type::Number)
-			{
-				const std::string num_text = advance().text;
-				if (num_text.find('.') != std::string::npos)
-					emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_float(static_cast<f32>(std::stof(num_text))) });
-				else
-					emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(static_cast<s32>(std::stoi(num_text))) });
-				return parse_postfix(body, ctx);
-			}
-
-			if (peek().type == Token::Type::String)
-			{
-				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_string(advance().text) });
-				return parse_postfix(body, ctx);
-			}
-
-			if (peek().type == Token::Type::Identifier)
-			{
-				Token ident = advance();
-				ResolvedVariable var_ref;
-				bool has_var = resolve_variable(ctx, ident.text, var_ref);
-				if (match_symbol("("))
-				{
-					bool dynamic_call = has_var;
-					if (dynamic_call)
-						emit_load_var(body, var_ref);
-					std::vector<std::string> arg_names;
-					size_t arg_count = 0;
-					if (!match_symbol(")"))
-					{
-						do
-						{
-							std::string arg_name;
-							if (!dynamic_call && peek().type == Token::Type::Identifier && tokens.size() > current + 1 && tokens[current + 1].type == Token::Type::Symbol && tokens[current + 1].text == "=")
-							{
-								arg_name = advance().text;
-								advance(); // '='
-							}
-							if (!parse_expression(body, ctx))
-								return false;
-							arg_names.push_back(arg_name);
-							arg_count++;
-						} while (match_symbol(","));
-						if (!expect_symbol(")", "Expected ')' after arguments"))
-							return false;
-					}
-
-					std::vector<Value> operands;
-					if (dynamic_call)
-					{
-						operands.push_back(make_string(""));
-					}
-					else
-					{
-						operands.push_back(make_string(ident.text));
-					}
-					operands.push_back(make_int(static_cast<s32>(arg_count)));
-					if (!dynamic_call)
-					{
-						for (const auto& n : arg_names)
-							operands.push_back(make_string(n));
-					}
-					emit(body, UdonInstruction::OpCode::CALL, operands);
-					return parse_postfix(body, ctx);
-				}
-
-				if (!has_var)
-					return !make_error(previous(), "Undeclared variable '" + ident.text + "'").has_error;
-				emit_load_var(body, var_ref);
-				if (match_symbol("++") || match_symbol("--"))
-				{
-					bool inc = previous().text == "++";
-					emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(1) });
-					emit(body, inc ? UdonInstruction::OpCode::ADD : UdonInstruction::OpCode::SUB);
-					emit_store_var(body, var_ref);
-					emit_load_var(body, var_ref);
-				}
-				return parse_postfix(body, ctx);
-			}
-
-			if (match_symbol("["))
-			{
-				int count = 0;
-				if (match_symbol("]"))
-				{
-					std::vector<Value> ops;
-					ops.push_back(make_string("array"));
-					ops.push_back(make_int(0));
-					emit(body, UdonInstruction::OpCode::CALL, ops);
-					return parse_postfix(body, ctx);
-				}
-
-				do
-				{
-					if (!parse_expression(body, ctx))
-						return false;
-					count++;
-				} while (match_symbol(","));
-
-				if (!expect_symbol("]", "Expected ']' after array literal"))
-					return false;
-
-				std::vector<Value> ops;
-				ops.push_back(make_string("array"));
-				ops.push_back(make_int(count));
-				for (int i = 0; i < count; ++i)
-					ops.push_back(make_string(""));
-				emit(body, UdonInstruction::OpCode::CALL, ops);
-				return parse_postfix(body, ctx);
-			}
-
-			if (peek().type == Token::Type::Keyword && (peek().text == "true" || peek().text == "false"))
-			{
-				const bool val = advance().text == "true";
-				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_bool(val) });
-				return parse_postfix(body, ctx);
-			}
-			if (peek().type == Token::Type::Keyword && peek().text == "none")
-			{
-				advance();
-				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_none() });
-				return parse_postfix(body, ctx);
-			}
-
-			if (peek().type == Token::Type::Template)
-			{
-				Token templ = advance();
-				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_string(templ.template_content) });
-				std::vector<Value> ops;
-				ops.push_back(make_string(templ.text));
-				ops.push_back(make_int(1));
-				ops.push_back(make_string(""));
-				emit(body, UdonInstruction::OpCode::CALL, ops);
-				return parse_postfix(body, ctx);
-			}
-
-			if (match_symbol("("))
-			{
-				if (!parse_expression(body, ctx))
-					return false;
-				if (!expect_symbol(")", "Expected ')'"))
-					return false;
-				return parse_postfix(body, ctx);
-			}
-
-			if (match_symbol("{"))
-			{
-				std::vector<std::string> keys;
-				size_t auto_index = 0;
-
-				if (!match_symbol("}"))
-				{
-					do
-					{
-						bool has_explicit_key = false;
-						std::string key;
-						Token key_token = peek();
-						if (key_token.type == Token::Type::Identifier || key_token.type == Token::Type::String || key_token.type == Token::Type::Number)
-						{
-							key = advance().text;
-							if (match_symbol(":"))
-							{
-								has_explicit_key = true;
-							}
-						}
-						else
-						{
-							return !make_error(peek(), "Expected property name").has_error;
-						}
-
-						if (!has_explicit_key)
-						{
-							key = std::to_string(auto_index++);
-							current = current - 1;
-						}
-
-						if (!parse_expression(body, ctx))
-							return false;
-
-						if (has_explicit_key && key_token.type == Token::Type::Number)
-						{
-							try
-							{
-								int key_num = std::stoi(key);
-								if (key_num + 1 > static_cast<int>(auto_index))
-									auto_index = static_cast<size_t>(key_num + 1);
-							}
-							catch (...)
-							{
-							}
-						}
-						keys.push_back(key);
-
-					} while (match_symbol(","));
-
-					if (!expect_symbol("}", "Expected '}' after object literal"))
-						return false;
-				}
-
-				for (const auto& k : keys)
-					emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_string(k) });
-
-				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(static_cast<s32>(keys.size())) });
-
-				std::vector<Value> ops;
-				ops.push_back(make_string("__object_literal"));
-				ops.push_back(make_int(static_cast<s32>(keys.size() * 2 + 1))); // total arg count
-
-				emit(body, UdonInstruction::OpCode::CALL, ops);
-				return parse_postfix(body, ctx);
-			}
-			if (peek().type == Token::Type::Template)
-			{
-				Token templ = advance();
-				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_string(templ.template_content) });
-				std::vector<Value> ops;
-				ops.push_back(make_string(templ.text));
-				ops.push_back(make_int(1));
-				ops.push_back(make_string(""));
-				emit(body, UdonInstruction::OpCode::CALL, ops);
-				return parse_postfix(body, ctx);
-			}
-			return !make_error(peek(), "Unexpected token '" + peek().text + "' in expression").has_error;
-		}
-	};
-
-	std::unordered_set<std::string> collect_top_level_globals(const std::vector<Token>& tokens)
-	{
-		std::unordered_set<std::string> names;
-		int depth = 0;
-		for (size_t i = 0; i + 1 < tokens.size(); ++i)
-		{
-			const Token& t = tokens[i];
-			if (t.type == Token::Type::Symbol)
-			{
-				if (t.text == "{")
-					depth++;
-				else if (t.text == "}")
-					depth = std::max(0, depth - 1);
-			}
-			if (depth == 0 && t.type == Token::Type::Keyword && t.text == "var" && tokens[i + 1].type == Token::Type::Identifier)
-			{
-				names.insert(tokens[i + 1].text);
-			}
-		}
-		return names;
 	}
+	return names;
+}
 
-	bool pop_value(std::vector<Value>& stack, Value& out, CodeLocation& error)
+bool pop_value(std::vector<UdonValue>& stack, UdonValue& out, CodeLocation& error)
+{
+	if (stack.empty())
 	{
-		if (stack.empty())
-		{
-			error.has_error = true;
-			error.opt_error_message = "Stack underflow";
-			return false;
-		}
-		out = stack.back();
-		stack.pop_back();
-		return true;
+		error.has_error = true;
+		error.opt_error_message = "Stack underflow";
+		return false;
 	}
-
-} // namespace
+	out = stack.back();
+	stack.pop_back();
+	return true;
+}
 
 static bool get_property_value(const UdonValue& obj, const std::string& name, UdonValue& out)
 {
-	using namespace udon_script_helpers;
 	if (obj.type == UdonValue::Type::Array)
 	{
 		if (!array_get(obj, name, out))
@@ -2011,7 +82,6 @@ static bool get_property_value(const UdonValue& obj, const std::string& name, Ud
 }
 static bool get_index_value(const UdonValue& obj, const UdonValue& index, UdonValue& out)
 {
-	using namespace udon_script_helpers;
 	if (obj.type == UdonValue::Type::Array)
 	{
 		if (!array_get(obj, key_from_value(index), out))
@@ -2049,7 +119,6 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 	std::unordered_map<std::string, UdonValue> named_args,
 	UdonValue& return_value)
 {
-	using Value = UdonValue;
 	CodeLocation ok{};
 	ok.has_error = false;
 	ok.line = 0;
@@ -2092,7 +161,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 		return env;
 	};
 
-	auto load_slot = [&](s32 depth, s32 slot, Value& out) -> bool
+	auto load_slot = [&](s32 depth, s32 slot, UdonValue& out) -> bool
 	{
 		UdonEnvironment* env = env_at_depth(depth);
 		if (!env || slot < 0 || static_cast<size_t>(slot) >= env->slots.size())
@@ -2101,7 +170,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 		return true;
 	};
 
-	auto store_slot = [&](s32 depth, s32 slot, const Value& v) -> bool
+	auto store_slot = [&](s32 depth, s32 slot, const UdonValue& v) -> bool
 	{
 		UdonEnvironment* env = env_at_depth(depth);
 		if (!env || slot < 0 || static_cast<size_t>(slot) >= env->slots.size())
@@ -2124,11 +193,11 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 		if (has_variadic && name == variadic_param)
 		{
 			if (variadic_slot_index >= 0)
-				store_slot(0, variadic_slot_index, udon_script_helpers::make_none());
+				store_slot(0, variadic_slot_index, make_none());
 			continue;
 		}
 		auto nit = named_args.find(name);
-		Value param_value = udon_script_helpers::make_none();
+		UdonValue param_value = make_none();
 		if (nit != named_args.end())
 		{
 			param_value = nit->second;
@@ -2143,7 +212,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 
 	if (has_variadic)
 	{
-		Value vargs = make_array();
+		UdonValue vargs = make_array();
 		for (size_t i = positional_index; i < args.size(); ++i)
 			array_set(vargs, std::to_string(i - positional_index), args[i]);
 		if (variadic_slot_index >= 0)
@@ -2156,13 +225,13 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 		return ok;
 	}
 
-	std::vector<Value> eval_stack;
+	std::vector<UdonValue> eval_stack;
 	struct RootGuard
 	{
 		UdonInterpreter* interp_ptr;
 		std::vector<UdonEnvironment*>* envs;
-		std::vector<Value>* values;
-		RootGuard(UdonInterpreter* interp_in, std::vector<UdonEnvironment*>* env_ptr, std::vector<Value>* val_ptr)
+		std::vector<UdonValue>* values;
+		RootGuard(UdonInterpreter* interp_in, std::vector<UdonEnvironment*>* env_ptr, std::vector<UdonValue>* val_ptr)
 			: interp_ptr(interp_in), envs(env_ptr), values(val_ptr)
 		{
 			interp_ptr->active_env_roots.push_back(envs);
@@ -2175,12 +244,12 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 		}
 	} root_guard(interp, &env_stack, &eval_stack);
 
-	auto pop_checked = [&](Value& out) -> bool
+	auto pop_checked = [&](UdonValue& out) -> bool
 	{
 		return pop_value(eval_stack, out, ok);
 	};
 
-	auto pop_two = [&](Value& lhs, Value& rhs) -> bool
+	auto pop_two = [&](UdonValue& lhs, UdonValue& rhs) -> bool
 	{
 		if (!pop_checked(rhs) || !pop_checked(lhs))
 			return false;
@@ -2189,11 +258,11 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 
 	auto do_binary = [&](auto op_fn) -> bool
 	{
-		Value rhs{};
-		Value lhs{};
+		UdonValue rhs{};
+		UdonValue lhs{};
 		if (!pop_two(lhs, rhs))
 			return false;
-		Value result{};
+		UdonValue result{};
 		if (!op_fn(lhs, rhs, result))
 			return fail("Invalid operands for arithmetic");
 		eval_stack.push_back(result);
@@ -2212,7 +281,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 			std::chrono::steady_clock::now() - gc_start_time)
 				.count());
 	};
-	auto push_gc_root_and_collect = [&](const Value& v)
+	auto push_gc_root_and_collect = [&](const UdonValue& v)
 	{
 		interp->stack.push_back(v);
 		interp->collect_garbage(&env_stack, &eval_stack);
@@ -2261,7 +330,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 			{
 				const s32 depth = instr.operands.size() > 0 ? instr.operands[0].s32_value : 0;
 				const s32 slot = instr.operands.size() > 1 ? instr.operands[1].s32_value : 0;
-				Value v{};
+				UdonValue v{};
 				if (!load_slot(depth, slot, v))
 					return ok;
 				eval_stack.push_back(v);
@@ -2269,7 +338,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 			}
 			case UdonInstruction::OpCode::STORE_LOCAL:
 			{
-				Value v{};
+				UdonValue v{};
 				if (!pop_value(eval_stack, v, ok))
 					return ok;
 				const s32 depth = instr.operands.size() > 0 ? instr.operands[0].s32_value : 0;
@@ -2286,13 +355,13 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				if (git != interp->globals.end())
 					eval_stack.push_back(git->second);
 				else
-					eval_stack.push_back(udon_script_helpers::make_none());
+					eval_stack.push_back(make_none());
 				break;
 			}
 			case UdonInstruction::OpCode::STORE_GLOBAL:
 			case UdonInstruction::OpCode::STORE_VAR:
 			{
-				Value v{};
+				UdonValue v{};
 				if (!pop_value(eval_stack, v, ok))
 					return ok;
 				const std::string name = !instr.operands.empty() ? instr.operands[0].string_value : "";
@@ -2305,17 +374,17 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 			case UdonInstruction::OpCode::DIV:
 			case UdonInstruction::OpCode::MOD:
 			{
-				auto op = [&](const Value& lhs, const Value& rhs, Value& out) -> bool
+				auto op = [&](const UdonValue& lhs, const UdonValue& rhs, UdonValue& out) -> bool
 				{
 					if (instr.opcode == UdonInstruction::OpCode::ADD)
-						return udon_script_helpers::add_values(lhs, rhs, out);
+						return add_values(lhs, rhs, out);
 					if (instr.opcode == UdonInstruction::OpCode::SUB)
-						return udon_script_helpers::sub_values(lhs, rhs, out);
+						return sub_values(lhs, rhs, out);
 					if (instr.opcode == UdonInstruction::OpCode::MUL)
-						return udon_script_helpers::mul_values(lhs, rhs, out);
+						return mul_values(lhs, rhs, out);
 					if (instr.opcode == UdonInstruction::OpCode::DIV)
-						return udon_script_helpers::div_values(lhs, rhs, out);
-					return udon_script_helpers::mod_values(lhs, rhs, out);
+						return div_values(lhs, rhs, out);
+					return mod_values(lhs, rhs, out);
 				};
 				if (!do_binary(op))
 					return ok;
@@ -2323,12 +392,12 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 			}
 			case UdonInstruction::OpCode::NEGATE:
 			{
-				Value v{};
+				UdonValue v{};
 				if (!pop_checked(v))
 					return ok;
-				if (udon_script_helpers::is_numeric(v))
+				if (is_numeric(v))
 				{
-					if (v.type == Value::Type::S32)
+					if (v.type == UdonValue::Type::S32)
 						v.s32_value = -v.s32_value;
 					else
 						v.f32_value = -v.f32_value;
@@ -2344,12 +413,12 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 			case UdonInstruction::OpCode::GET_PROP:
 			{
 				const std::string name = !instr.operands.empty() ? instr.operands[0].string_value : "";
-				Value prop;
+				UdonValue prop;
 				bool success = false;
 				if (name == "[index]")
 				{
-					Value idx;
-					Value obj;
+					UdonValue idx;
+					UdonValue obj;
 					if (!pop_value(eval_stack, idx, ok))
 						return ok;
 					if (!pop_value(eval_stack, obj, ok))
@@ -2358,7 +427,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				}
 				else
 				{
-					Value obj;
+					UdonValue obj;
 					if (!pop_value(eval_stack, obj, ok))
 						return ok;
 					success = get_property_value(obj, name, prop);
@@ -2375,41 +444,41 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 			case UdonInstruction::OpCode::STORE_PROP:
 			{
 				const std::string name = !instr.operands.empty() ? instr.operands[0].string_value : "";
-				Value value{};
+				UdonValue value;
 				if (!pop_value(eval_stack, value, ok))
 					return ok;
 
 				if (name == "[index]")
 				{
-					Value idx;
-					Value obj;
+					UdonValue idx;
+					UdonValue obj;
 					if (!pop_value(eval_stack, idx, ok))
 						return ok;
 					if (!pop_value(eval_stack, obj, ok))
 						return ok;
 
-					if (obj.type != Value::Type::Array)
+					if (obj.type != UdonValue::Type::Array)
 					{
 						fail("Cannot index non-array");
 						return ok;
 					}
 
-					std::string key = udon_script_helpers::key_from_value(idx);
-					udon_script_helpers::array_set(obj, key, value);
+					std::string key = key_from_value(idx);
+					array_set(obj, key, value);
 				}
 				else
 				{
-					Value obj;
+					UdonValue obj;
 					if (!pop_value(eval_stack, obj, ok))
 						return ok;
 
-					if (obj.type != Value::Type::Array)
+					if (obj.type != UdonValue::Type::Array)
 					{
 						fail("Cannot set property on non-array/object");
 						return ok;
 					}
 
-					udon_script_helpers::array_set(obj, name, value);
+					array_set(obj, name, value);
 				}
 				break;
 			}
@@ -2420,15 +489,15 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 			case UdonInstruction::OpCode::GT:
 			case UdonInstruction::OpCode::GTE:
 			{
-				Value rhs{};
-				Value lhs{};
+				UdonValue rhs{};
+				UdonValue lhs{};
 				if (!pop_two(lhs, rhs))
 					return ok;
-				Value result{};
+				UdonValue result{};
 				bool success = false;
 				if (instr.opcode == UdonInstruction::OpCode::EQ || instr.opcode == UdonInstruction::OpCode::NEQ)
 				{
-					success = udon_script_helpers::equal_values(lhs, rhs, result);
+					success = equal_values(lhs, rhs, result);
 					if (instr.opcode == UdonInstruction::OpCode::NEQ)
 					{
 						result.s32_value = result.s32_value ? 0 : 1;
@@ -2436,7 +505,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				}
 				else
 				{
-					success = udon_script_helpers::compare_values(lhs, rhs, instr.opcode, result);
+					success = compare_values(lhs, rhs, instr.opcode, result);
 				}
 				if (!success)
 				{
@@ -2460,10 +529,10 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 			}
 			case UdonInstruction::OpCode::JUMP_IF_FALSE:
 			{
-				Value cond;
+				UdonValue cond;
 				if (!pop_value(eval_stack, cond, ok))
 					return ok;
-				if (!udon_script_helpers::is_truthy(cond))
+				if (!is_truthy(cond))
 				{
 					if (instr.operands.empty())
 					{
@@ -2479,18 +548,18 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 			}
 			case UdonInstruction::OpCode::TO_BOOL:
 			{
-				Value v{};
+				UdonValue v{};
 				if (!pop_value(eval_stack, v, ok))
 					return ok;
-				eval_stack.push_back(udon_script_helpers::make_bool(udon_script_helpers::is_truthy(v)));
+				eval_stack.push_back(make_bool(is_truthy(v)));
 				break;
 			}
 			case UdonInstruction::OpCode::LOGICAL_NOT:
 			{
-				Value v{};
+				UdonValue v{};
 				if (!pop_value(eval_stack, v, ok))
 					return ok;
-				eval_stack.push_back(udon_script_helpers::make_bool(!udon_script_helpers::is_truthy(v)));
+				eval_stack.push_back(make_bool(!is_truthy(v)));
 				break;
 			}
 			case UdonInstruction::OpCode::MAKE_CLOSURE:
@@ -2519,8 +588,8 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				if (var_it != interp->function_variadic.end())
 					fn_obj->variadic_param = var_it->second;
 
-				Value v{};
-				v.type = Value::Type::Function;
+				UdonValue v{};
+				v.type = UdonValue::Type::Function;
 				v.function = fn_obj;
 				eval_stack.push_back(v);
 				break;
@@ -2539,11 +608,11 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				for (size_t i = 2; i < instr.operands.size(); ++i)
 					arg_names.push_back(instr.operands[i].string_value);
 
-				std::vector<Value> call_args(static_cast<size_t>(arg_count));
+				std::vector<UdonValue> call_args(static_cast<size_t>(arg_count));
 				std::vector<std::string> names(static_cast<size_t>(arg_count));
 				for (s32 idx = arg_count - 1; idx >= 0; --idx)
 				{
-					Value v{};
+					UdonValue v{};
 					if (!pop_value(eval_stack, v, ok))
 						return ok;
 					call_args[static_cast<size_t>(idx)] = v;
@@ -2551,8 +620,8 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 						names[static_cast<size_t>(idx)] = arg_names[static_cast<size_t>(idx)];
 				}
 
-				std::vector<Value> positional;
-				std::unordered_map<std::string, Value> named;
+				std::vector<UdonValue> positional;
+				std::unordered_map<std::string, UdonValue> named;
 				for (size_t i = 0; i < call_args.size(); ++i)
 				{
 					if (!names[i].empty())
@@ -2561,7 +630,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 						positional.push_back(call_args[i]);
 				}
 
-				Value call_result;
+				UdonValue call_result;
 				CodeLocation inner_err{};
 				inner_err.has_error = false;
 
@@ -2655,9 +724,9 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 						call_result);
 				};
 
-				auto call_closure = [&](const Value& fn_val) -> bool
+				auto call_closure = [&](const UdonValue& fn_val) -> bool
 				{
-					if (fn_val.type != Value::Type::Function || !fn_val.function)
+					if (fn_val.type != UdonValue::Type::Function || !fn_val.function)
 						return false;
 					if (!fn_val.function->handler.empty())
 					{
@@ -2665,7 +734,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 						{
 							std::string rendered;
 							std::unordered_map<std::string, UdonValue> replacements;
-							if (!positional.empty() && positional[0].type == Value::Type::Array && positional[0].array_map)
+							if (!positional.empty() && positional[0].type == UdonValue::Type::Array && positional[0].array_map)
 								replacements = positional[0].array_map->values;
 							const std::string& tmpl = fn_val.function->template_body;
 							size_t pos = 0;
@@ -2687,10 +756,10 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 								std::string key = tmpl.substr(brace + 1, end - brace - 1);
 								auto it = replacements.find(key);
 								if (it != replacements.end())
-									rendered.append(udon_script_helpers::value_to_string(it->second));
+									rendered.append(value_to_string(it->second));
 								pos = end + 1;
 							}
-							call_result = udon_script_helpers::make_string(rendered);
+							call_result = make_string(rendered);
 							return true;
 						}
 						else if (fn_val.function->handler == "import_forward")
@@ -2716,8 +785,8 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 								inner_err.opt_error_message = "dl_call expects (symbol, args...)";
 								return true;
 							}
-							const Value& symbol_val = positional[0];
-							if (symbol_val.type != Value::Type::String)
+							const UdonValue& symbol_val = positional[0];
+							if (symbol_val.type != UdonValue::Type::String)
 							{
 								inner_err.has_error = true;
 								inner_err.opt_error_message = "dl_call symbol must be a string";
@@ -2778,13 +847,13 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 								}
 								for (size_t i = 0; i < arg_types.size(); ++i)
 								{
-									const Value& v = positional[i + 1];
+									const UdonValue& v = positional[i + 1];
 									std::string t = arg_types[i];
 									if (t == "s32")
 									{
-										if (v.type == Value::Type::S32)
+										if (v.type == UdonValue::Type::S32)
 											args.push_back(static_cast<double>(v.s32_value));
-										else if (v.type == Value::Type::F32)
+										else if (v.type == UdonValue::Type::F32)
 											args.push_back(static_cast<double>(v.f32_value));
 										else
 										{
@@ -2795,9 +864,9 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 									}
 									else if (t == "f32" || t == "f64" || t == "double")
 									{
-										if (v.type == Value::Type::F32)
+										if (v.type == UdonValue::Type::F32)
 											args.push_back(static_cast<double>(v.f32_value));
-										else if (v.type == Value::Type::S32)
+										else if (v.type == UdonValue::Type::S32)
 											args.push_back(static_cast<double>(v.s32_value));
 										else
 										{
@@ -2818,10 +887,10 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 							{
 								for (size_t i = 1; i < positional.size(); ++i)
 								{
-									const Value& v = positional[i];
-									if (v.type == Value::Type::S32)
+									const UdonValue& v = positional[i];
+									if (v.type == UdonValue::Type::S32)
 										args.push_back(static_cast<double>(v.s32_value));
-									else if (v.type == Value::Type::F32)
+									else if (v.type == UdonValue::Type::F32)
 										args.push_back(static_cast<double>(v.f32_value));
 									else
 									{
@@ -2855,9 +924,9 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 									return true;
 							}
 							if (ret_type == "s32")
-								call_result = udon_script_helpers::make_int(static_cast<s32>(result));
+								call_result = make_int(static_cast<s32>(result));
 							else
-								call_result = udon_script_helpers::make_float(static_cast<f32>(result));
+								call_result = make_float(static_cast<f32>(result));
 							return true;
 #else
 							inner_err.has_error = true;
@@ -2874,7 +943,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 								inner_err.opt_error_message = "dl_close: invalid handle";
 								return true;
 							}
-							call_result = udon_script_helpers::make_none();
+							call_result = make_none();
 							return true;
 #else
 							inner_err.has_error = true;
@@ -2899,7 +968,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 
 				if (callee.empty())
 				{
-					Value callable;
+					UdonValue callable;
 					if (!pop_value(eval_stack, callable, ok))
 						return ok;
 					if (!call_closure(callable))
@@ -2914,12 +983,12 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 
 				bool handled = false;
 
-				if (!positional.empty() && positional[0].type == Value::Type::Array && positional[0].array_map)
+				if (!positional.empty() && positional[0].type == UdonValue::Type::Array && positional[0].array_map)
 				{
-					Value member_fn;
-					if (udon_script_helpers::array_get(positional[0], callee, member_fn))
+					UdonValue member_fn;
+					if (array_get(positional[0], callee, member_fn))
 					{
-						if (member_fn.type != Value::Type::Function || !member_fn.function)
+						if (member_fn.type != UdonValue::Type::Function || !member_fn.function)
 						{
 							inner_err.has_error = true;
 							inner_err.opt_error_message = "Dot-call on arrays is not supported; use ':' to access properties";
@@ -2936,7 +1005,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 
 				if (!handled)
 				{
-					bool handled_builtin = udon_script_builtins::handle_builtin(interp, callee, positional, named, call_result, inner_err);
+					bool handled_builtin = handle_builtin(interp, callee, positional, named, call_result, inner_err);
 					if (handled_builtin)
 					{
 						if (inner_err.has_error)
@@ -2985,21 +1054,21 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				}
 				else
 				{
-					return_value = udon_script_helpers::make_none();
+					return_value = make_none();
 				}
 				push_gc_root_and_collect(return_value);
 				return ok;
 			}
 			case UdonInstruction::OpCode::POP:
 			{
-				Value tmp;
+				UdonValue tmp;
 				if (!pop_value(eval_stack, tmp, ok))
 					return ok;
 				break;
 			}
 			case UdonInstruction::OpCode::NOP:
 			case UdonInstruction::OpCode::HALT:
-				return_value = udon_script_helpers::make_none();
+				return_value = make_none();
 				push_gc_root_and_collect(return_value);
 				return ok;
 		}
@@ -3007,7 +1076,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 		++ip;
 	}
 
-	return_value = udon_script_helpers::make_none();
+	return_value = make_none();
 	push_gc_root_and_collect(return_value);
 	return ok;
 }
@@ -3053,7 +1122,7 @@ UdonEnvironment* UdonInterpreter::allocate_environment(size_t slot_count, UdonEn
 {
 	auto* env = new UdonEnvironment();
 	env->parent = parent;
-	env->slots.resize(slot_count, udon_script_helpers::make_none());
+	env->slots.resize(slot_count, make_none());
 	heap_environments.push_back(env);
 	return env;
 }

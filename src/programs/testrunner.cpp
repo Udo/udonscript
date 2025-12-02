@@ -1,5 +1,5 @@
 #include "core/udonscript.h"
-#include "core/udonscript-internal.h"
+#include "core/helpers.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
