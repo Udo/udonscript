@@ -1292,6 +1292,26 @@ namespace
 					emit(body, UdonInstruction::OpCode::GET_PROP, { make_string("[index]") });
 					continue;
 				}
+				if (match_symbol("("))
+				{
+					size_t arg_count = 0;
+					if (!match_symbol(")"))
+					{
+						do
+						{
+							if (!parse_expression(body, locals))
+								return false;
+							arg_count++;
+						} while (match_symbol(","));
+						if (!expect_symbol(")", "Expected ')' after arguments"))
+							return false;
+					}
+					std::vector<Value> operands;
+					operands.push_back(make_string("")); // empty callee signals dynamic call using callable on stack
+					operands.push_back(make_int(static_cast<s32>(arg_count)));
+					emit(body, UdonInstruction::OpCode::CALL, operands);
+					continue;
+				}
 				break;
 			}
 			return true;
@@ -2167,16 +2187,30 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 							call_result = udon_script_helpers::make_string(rendered);
 							return true;
 						}
+						else if (fn_val.function->handler == "import_forward")
+						{
+							UdonInterpreter* sub = interp->get_imported_interpreter(fn_val.function->handler_data);
+							if (!sub)
+							{
+								inner_err.has_error = true;
+								inner_err.opt_error_message = "import_forward: invalid module";
+								return true;
+							}
+							CodeLocation nested = sub->run(fn_val.function->template_body, positional, named, call_result);
+							if (nested.has_error)
+								inner_err = nested;
+							return true;
+						}
 						else if (fn_val.function->handler == "dl_call")
 						{
 #if defined(__unix__) || defined(__APPLE__)
-							if (positional.size() < 2)
+							if (positional.size() < 1)
 							{
 								inner_err.has_error = true;
-								inner_err.opt_error_message = "dl_call expects (namespace, symbol, args...)";
+								inner_err.opt_error_message = "dl_call expects (symbol, args...)";
 								return true;
 							}
-							const Value& symbol_val = positional[1];
+							const Value& symbol_val = positional[0];
 							if (symbol_val.type != Value::Type::String)
 							{
 								inner_err.has_error = true;
@@ -2230,7 +2264,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 							std::vector<double> args;
 							if (!arg_types.empty())
 							{
-								if (positional.size() - 2 != arg_types.size())
+								if (positional.size() - 1 != arg_types.size())
 								{
 									inner_err.has_error = true;
 									inner_err.opt_error_message = "dl_call: argument count mismatch";
@@ -2238,7 +2272,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 								}
 								for (size_t i = 0; i < arg_types.size(); ++i)
 								{
-									const Value& v = positional[i + 2];
+									const Value& v = positional[i + 1];
 									std::string t = arg_types[i];
 									if (t == "s32")
 									{
@@ -2276,7 +2310,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 							}
 							else
 							{
-								for (size_t i = 2; i < positional.size(); ++i)
+								for (size_t i = 1; i < positional.size(); ++i)
 								{
 									const Value& v = positional[i];
 									if (v.type == Value::Type::S32)
@@ -2363,6 +2397,21 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 					return true;
 				};
 
+				if (callee.empty())
+				{
+					Value callable;
+					if (!pop_value(eval_stack, callable, ok))
+						return ok;
+					if (!call_closure(callable))
+					{
+						ok.has_error = true;
+						ok.opt_error_message = "Value is not callable";
+						return ok;
+					}
+					eval_stack.push_back(call_result);
+					break;
+				}
+
 				bool handled = false;
 
 				if (!positional.empty() && positional[0].type == Value::Type::Array && positional[0].array_map)
@@ -2373,19 +2422,14 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 						if (member_fn.type != Value::Type::Function || !member_fn.function)
 						{
 							inner_err.has_error = true;
-							inner_err.opt_error_message = "Property '" + callee + "' is not callable";
+							inner_err.opt_error_message = "Dot-call on arrays is not supported; use ':' to access properties";
 							handled = true;
 						}
 						else
 						{
 							handled = true;
-							auto pit = interp->function_params.find(member_fn.function->function_name);
-							bool has_variadic = interp->function_variadic.find(member_fn.function->function_name) != interp->function_variadic.end();
-							if (!has_variadic && pit != interp->function_params.end() && positional.size() == pit->second.size() + 1)
-							{
-								positional.erase(positional.begin());
-							}
-							call_closure(member_fn);
+							inner_err.has_error = true;
+							inner_err.opt_error_message = "Dot-call on arrays is not supported; use ':' to access properties";
 						}
 					}
 				}
@@ -2541,6 +2585,19 @@ bool UdonInterpreter::close_dl_handle(s32 id)
 		return true;
 	}
 	return false;
+}
+
+s32 UdonInterpreter::register_imported_interpreter(std::unique_ptr<UdonInterpreter> sub)
+{
+	imported_interpreters.push_back(std::move(sub));
+	return static_cast<s32>(imported_interpreters.size() - 1);
+}
+
+UdonInterpreter* UdonInterpreter::get_imported_interpreter(s32 id)
+{
+	if (id < 0 || static_cast<size_t>(id) >= imported_interpreters.size())
+		return nullptr;
+	return imported_interpreters[static_cast<size_t>(id)].get();
 }
 
 void UdonInterpreter::register_function(const std::string& name,
@@ -3020,6 +3077,7 @@ void UdonInterpreter::clear()
 #endif
 	}
 	dl_handles.clear();
+	imported_interpreters.clear();
 	instructions.clear();
 	function_params.clear();
 	function_variadic.clear();

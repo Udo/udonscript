@@ -811,39 +811,39 @@ namespace udon_script_builtins
 			ss << file.rdbuf();
 			std::string source = ss.str();
 
-			std::unordered_set<std::string> fns_before;
-			for (const auto& kv : interp->instructions)
-				fns_before.insert(kv.first);
-			std::unordered_set<std::string> globals_before;
-			for (const auto& kv : interp->globals)
-				globals_before.insert(kv.first);
+			std::unique_ptr<UdonInterpreter> sub = std::make_unique<UdonInterpreter>();
+			sub->builtins = interp->builtins; // share host-registered builtins
 
-			CodeLocation compile_res = interp->compile_append(source);
+			CodeLocation compile_res = sub->compile(source);
 			if (compile_res.has_error)
 			{
 				err = compile_res;
 				return true;
 			}
 
+			s32 sub_id = interp->register_imported_interpreter(std::move(sub));
+
 			out = make_array();
-			for (const auto& kv : interp->globals)
+			UdonInterpreter* sub_ref = interp->get_imported_interpreter(sub_id);
+			if (sub_ref)
 			{
-				if (globals_before.find(kv.first) != globals_before.end())
-					continue;
-				array_set(out, kv.first, kv.second);
-			}
-			for (const auto& kv : interp->instructions)
-			{
-				const std::string& name = kv.first;
-				if (fns_before.find(name) != fns_before.end())
-					continue;
-				if (name.rfind("__", 0) == 0)
-					continue;
-				UdonValue fn_val;
-				fn_val.type = UdonValue::Type::Function;
-				fn_val.function = interp->allocate_function();
-				fn_val.function->function_name = name;
-				array_set(out, name, fn_val);
+				for (const auto& kv : sub_ref->globals)
+				{
+					array_set(out, kv.first, kv.second);
+				}
+				for (const auto& kv : sub_ref->instructions)
+				{
+					const std::string& name = kv.first;
+					if (name.rfind("__", 0) == 0)
+						continue;
+					UdonValue fn_val;
+					fn_val.type = UdonValue::Type::Function;
+					fn_val.function = interp->allocate_function();
+					fn_val.function->handler = "import_forward";
+					fn_val.function->handler_data = sub_id;
+					fn_val.function->template_body = name; // store target function name
+					array_set(out, name, fn_val);
+				}
 			}
 			return true;
 		});

@@ -151,6 +151,7 @@ struct UdonInterpreter
 	std::vector<UdonValue::ManagedArray*> heap_arrays;
 	std::vector<UdonValue::ManagedFunction*> heap_functions;
 	std::vector<void*> dl_handles;
+	std::vector<std::unique_ptr<UdonInterpreter>> imported_interpreters;
 	s32 global_init_counter = 0;
 	s32 lambda_counter = 0;
 
@@ -177,6 +178,8 @@ struct UdonInterpreter
 	s32 register_dl_handle(void* handle);
 	void* get_dl_handle(s32 id);
 	bool close_dl_handle(s32 id);
+	s32 register_imported_interpreter(std::unique_ptr<UdonInterpreter> sub);
+	UdonInterpreter* get_imported_interpreter(s32 id);
 };
 
 struct UdonValue::ManagedArray

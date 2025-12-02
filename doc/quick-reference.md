@@ -292,7 +292,7 @@ When errors occur, check:
 - Line and column numbers in error message
 - Semicolons are ignored except inside `for (...)` headers
 - `return(a, b)` yields an array; destructure with `var x, y = fn()`, use `_` to ignore slots
-- Import another script: `var ns = import("path.udon")` returns an array of its new globals/functions; call methods with `ns.foo(...)` and access values with `ns:bar`
+- Import another script: `var ns = import("path.udon")` returns an isolated namespace array; call functions with `ns:foo(...)` and access values with `ns:bar`
 - POSIX: `dl_open("libm.so.6")` returns a namespace with `_handle`, `call(symbol, args...)` (numeric args → double, up to 4), and `close()`
 - Matching braces `{}`
 - Function names and parameters

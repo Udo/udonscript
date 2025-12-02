@@ -32,9 +32,9 @@ function main() {
     print("method builtin string:", "MiXeD".to_lower())
 
     var obj = {
-        len: function(self) { return(42) },
-        custom: function(self, msg) { return("custom:" + msg) }
+        len: function() { return(42) },
+        custom: function(msg) { return("custom:" + msg) }
     }
-    print("array property callable:", obj.len())
-    print("method property:", obj.custom("ok"))
+    print("array property callable:", obj:len())
+    print("method property:", obj:custom("ok"))
 }

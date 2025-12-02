@@ -126,6 +126,22 @@ Writes data to a file, replacing existing content.
 write_entire_file("output.txt", "New content")
 ```
 
+### `import(path)`
+
+Loads another UdonScript file in an isolated interpreter and returns its functions/globals as an array namespace.
+
+**Parameters:**
+- `path: string` - Path to the UdonScript file to import
+
+**Returns:** `array` - Contains keys for functions and globals defined in the imported file
+
+**Example:**
+```javascript
+var utils = import("utils.udon")
+utils:helper()
+print(utils:version)
+```
+
 ### `dl_open(path)`
 
 POSIX only. Opens a shared object at `path` and returns a namespace array containing `_handle`, `call`, and `close`.
