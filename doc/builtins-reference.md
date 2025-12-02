@@ -137,6 +137,7 @@ POSIX only. Opens a shared object at `path` and returns a namespace array contai
 
 **Usage:**
 - `ns.call(symbol, args...)` invokes a numeric function (up to 4 arguments, converted to double) and returns a number.
+- You can supply a signature to aid tooling and validation: `ns.call("pow(f32,f32):f32", 2, 3)`. Supported arg types: `s32`, `f32`, `f64`/`double`. Return types: `f32` (default) or `s32`.
 - `ns.close()` unloads the library.
 
 **Example:**

@@ -1,8 +1,11 @@
-// Test: dl_open and dl_call using libm pow
+// Test: dl_open and dl_call using libm math functions
 
 function main() {
     var ns = dl_open("libm.so.6")
-    var r = ns.call("pow", 2, 3)
-    print("pow:", r)
+    print("pow:", ns.call("pow(f32,f32):f32", 2, 3))
+    print("sqrt:", ns.call("sqrt(f32):f32", 9))
+    print("fmax:", ns.call("fmax(f32,f32):f32", 2, 5))
+    print("cos:", ns.call("cos(f32):f32", 0))
+    print("atan2:", ns.call("atan2(f32,f32):f32", 0, 1))
     ns.close()
 }

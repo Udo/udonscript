@@ -2190,7 +2190,36 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 								inner_err.opt_error_message = "dl_call: invalid handle";
 								return true;
 							}
-							void* sym = dlsym(handle, symbol_val.string_value.c_str());
+							std::string sig_text = symbol_val.string_value;
+							std::string sym_name = sig_text;
+							std::vector<std::string> arg_types;
+							std::string ret_type = "f32";
+							auto trim = [](std::string s)
+							{
+								while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front())))
+									s.erase(s.begin());
+								while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back())))
+									s.pop_back();
+								return s;
+							};
+							size_t lparen = sig_text.find('(');
+							size_t rparen = sig_text.find(')');
+							if (lparen != std::string::npos && rparen != std::string::npos && rparen > lparen)
+							{
+								sym_name = trim(sig_text.substr(0, lparen));
+								std::string args_sig = sig_text.substr(lparen + 1, rparen - lparen - 1);
+								std::stringstream ss(args_sig);
+								std::string item;
+								while (std::getline(ss, item, ','))
+								{
+									arg_types.push_back(trim(item));
+								}
+								if (rparen + 1 < sig_text.size() && sig_text[rparen + 1] == ':')
+								{
+									ret_type = trim(sig_text.substr(rparen + 2));
+								}
+							}
+							void* sym = dlsym(handle, sym_name.c_str());
 							if (!sym)
 							{
 								inner_err.has_error = true;
@@ -2199,18 +2228,67 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 							}
 
 							std::vector<double> args;
-							for (size_t i = 2; i < positional.size(); ++i)
+							if (!arg_types.empty())
 							{
-								const Value& v = positional[i];
-								if (v.type == Value::Type::S32)
-									args.push_back(static_cast<double>(v.s32_value));
-								else if (v.type == Value::Type::F32)
-									args.push_back(static_cast<double>(v.f32_value));
-								else
+								if (positional.size() - 2 != arg_types.size())
 								{
 									inner_err.has_error = true;
-									inner_err.opt_error_message = "dl_call only supports numeric arguments";
+									inner_err.opt_error_message = "dl_call: argument count mismatch";
 									return true;
+								}
+								for (size_t i = 0; i < arg_types.size(); ++i)
+								{
+									const Value& v = positional[i + 2];
+									std::string t = arg_types[i];
+									if (t == "s32")
+									{
+										if (v.type == Value::Type::S32)
+											args.push_back(static_cast<double>(v.s32_value));
+										else if (v.type == Value::Type::F32)
+											args.push_back(static_cast<double>(v.f32_value));
+										else
+										{
+											inner_err.has_error = true;
+											inner_err.opt_error_message = "dl_call: expected s32 argument";
+											return true;
+										}
+									}
+									else if (t == "f32" || t == "f64" || t == "double")
+									{
+										if (v.type == Value::Type::F32)
+											args.push_back(static_cast<double>(v.f32_value));
+										else if (v.type == Value::Type::S32)
+											args.push_back(static_cast<double>(v.s32_value));
+										else
+										{
+											inner_err.has_error = true;
+											inner_err.opt_error_message = "dl_call: expected float argument";
+											return true;
+										}
+									}
+									else
+									{
+										inner_err.has_error = true;
+										inner_err.opt_error_message = "dl_call: unsupported argument type '" + t + "'";
+										return true;
+									}
+								}
+							}
+							else
+							{
+								for (size_t i = 2; i < positional.size(); ++i)
+								{
+									const Value& v = positional[i];
+									if (v.type == Value::Type::S32)
+										args.push_back(static_cast<double>(v.s32_value));
+									else if (v.type == Value::Type::F32)
+										args.push_back(static_cast<double>(v.f32_value));
+									else
+									{
+										inner_err.has_error = true;
+										inner_err.opt_error_message = "dl_call only supports numeric arguments";
+										return true;
+									}
 								}
 							}
 							double result = 0.0;
@@ -2236,7 +2314,10 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 									inner_err.opt_error_message = "dl_call supports up to 4 arguments";
 									return true;
 							}
-							call_result = udon_script_helpers::make_float(static_cast<f32>(result));
+							if (ret_type == "s32")
+								call_result = udon_script_helpers::make_int(static_cast<s32>(result));
+							else
+								call_result = udon_script_helpers::make_float(static_cast<f32>(result));
 							return true;
 #else
 							inner_err.has_error = true;
