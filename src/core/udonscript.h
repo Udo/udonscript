@@ -151,6 +151,8 @@ struct UdonInterpreter
 	std::vector<UdonEnvironment*> heap_environments;
 	std::vector<UdonValue::ManagedArray*> heap_arrays;
 	std::vector<UdonValue::ManagedFunction*> heap_functions;
+	u64 gc_runs = 0;
+	u64 gc_time_ms = 0;
 	std::vector<void*> dl_handles;
 	std::vector<std::unique_ptr<UdonInterpreter>> imported_interpreters;
 	s32 global_init_counter = 0;

@@ -566,6 +566,8 @@ namespace udon_script_builtins
 			array_set(out, "stack_roots", make_int(static_cast<s32>(interp->stack.size())));
 			array_set(out, "active_env_root_sets", make_int(static_cast<s32>(interp->active_env_roots.size())));
 			array_set(out, "active_value_root_sets", make_int(static_cast<s32>(interp->active_value_roots.size())));
+			array_set(out, "gc_runs", make_int(static_cast<s32>(interp->gc_runs)));
+			array_set(out, "gc_ms", make_int(static_cast<s32>(interp->gc_time_ms)));
 			return true;
 		});
 

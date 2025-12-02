@@ -9,44 +9,44 @@ var sample = {
 }
 
 function build_rules(lines) {
-    var rules = {}
-    var h = len(lines)
-    var w = len(lines[0])
-    for (var y = 0; y < h; y = y + 1) {
-        var row = lines[y]
-        for (var x = 0; x < w; x = x + 1) {
-            var ch = substr(row, x, 1)
-            if (rules[ch] == none) {
-                rules[ch] = {north: {}, south: {}, east: {}, west: {}}
-            }
-            var tile = rules[ch]
-            if (y > 0) {
-                var above = substr(lines[y - 1], x, 1)
-                var north = tile:north
-                if (north == none) north = {}
-                north[above] = 1
-                tile:north = north
-            }
-            if (y + 1 < h) {
-                var below = substr(lines[y + 1], x, 1)
-                var south = tile:south
-                if (south == none) south = {}
-                south[below] = 1
-                tile:south = south
-            }
-            if (x > 0) {
-                var left = substr(row, x - 1, 1)
-                var west = tile:west
-                if (west == none) west = {}
-                west[left] = 1
-                tile:west = west
-            }
-            if (x + 1 < w) {
-                var right = substr(row, x + 1, 1)
-                var east = tile:east
-                if (east == none) east = {}
-                east[right] = 1
-                tile:east = east
+	var rules = {}
+	var h = lines.len()
+	var w = lines[0].len()
+	for (var y = 0; y < h; y = y + 1) {
+		var row = lines[y]
+		for (var x = 0; x < w; x = x + 1) {
+			var ch = row.substr(x, 1)
+			if (rules[ch] == none) {
+				rules[ch] = {north: {}, south: {}, east: {}, west: {}}
+			}
+			var tile = rules[ch]
+			if (y > 0) {
+				var above = lines[y - 1].substr(x, 1)
+				var north = tile:north
+				if (north == none) north = {}
+				north[above] = 1
+				tile:north = north
+			}
+			if (y + 1 < h) {
+				var below = lines[y + 1].substr(x, 1)
+				var south = tile:south
+				if (south == none) south = {}
+				south[below] = 1
+				tile:south = south
+			}
+			if (x > 0) {
+				var left = row.substr(x - 1, 1)
+				var west = tile:west
+				if (west == none) west = {}
+				west[left] = 1
+				tile:west = west
+			}
+			if (x + 1 < w) {
+				var right = row.substr(x + 1, 1)
+				var east = tile:east
+				if (east == none) east = {}
+				east[right] = 1
+				tile:east = east
             }
             rules[ch] = tile
         }
@@ -62,141 +62,141 @@ function compatible(ch, dir, neighbor, rules) {
 }
 
 function cell_entropy(cell) {
-    return(len(keys(cell)))
+	return(cell.keys().len())
 }
 
 function collapse(grid, x, y) {
-    var candidates = grid[y][x]
-    var ks = keys(candidates)
-    if (len(ks) == 0) return(false)
-    var choice = ks[floor(rand() * len(ks))]
-    var new_cell = {}
-    new_cell[choice] = 1
-    var row = grid[y]
+	var candidates = grid[y][x]
+	var ks = candidates.keys()
+	if (ks.len() == 0) return(false)
+	var choice = ks[floor(rand() * ks.len())]
+	var new_cell = {}
+	new_cell[choice] = 1
+	var row = grid[y]
     row[x] = new_cell
     grid[y] = row
     return(true)
 }
 
 function propagate(grid, width, height, rules, seed_x, seed_y) {
-    var queue = {}
-    queue[0] = {x: seed_x, y: seed_y}
-    var qi = 0
-    while (qi < len(queue)) {
-        var item = queue[qi]
-        qi = qi + 1
-        var x = item:x
-        var y = item:y
-        var cell = grid[y][x]
-        var cell_keys = keys(cell)
-        if (len(cell_keys) == 0) return(false)
-        var dirs = {
-            0: {dx: 0, dy: -1, dir: "north", opp: "south"},
-            1: {dx: 0, dy: 1, dir: "south", opp: "north"},
-            2: {dx: -1, dy: 0, dir: "west", opp: "east"},
-            3: {dx: 1, dy: 0, dir: "east", opp: "west"}
-        }
-        for (var d = 0; d < len(dirs); d = d + 1) {
-            var dir = dirs[d]
-            var nx = x + dir:dx
-            var ny = y + dir:dy
-            if (nx < 0 || ny < 0 || nx >= width || ny >= height)
-                continue
-            var neighbor = grid[ny][nx]
-            var neighbor_keys = keys(neighbor)
-            var new_neighbor = {}
-            for (var ni = 0; ni < len(neighbor_keys); ni = ni + 1) {
-                var nk = neighbor_keys[ni]
-                var ok = false
-                for (var ci = 0; ci < len(cell_keys); ci = ci + 1) {
-                    var ck = cell_keys[ci]
-                    if (compatible(ck, dir:dir, nk, rules) && compatible(nk, dir:opp, ck, rules)) {
-                        ok = true
-                        break
-                    }
-                }
-                if (ok) new_neighbor[nk] = 1
-            }
-            var new_keys = keys(new_neighbor)
-            if (len(new_keys) == 0) return(false)
-            if (len(new_keys) < len(neighbor_keys)) {
-                var nrow = grid[ny]
-                nrow[nx] = new_neighbor
-                grid[ny] = nrow
-                queue[len(queue)] = {x: nx, y: ny}
-            }
+	var queue = {}
+	queue[0] = {x: seed_x, y: seed_y}
+	var qi = 0
+	while (qi < queue.len()) {
+		var item = queue[qi]
+		qi = qi + 1
+		var x = item:x
+		var y = item:y
+		var cell = grid[y][x]
+		var cell_keys = cell.keys()
+		if (cell_keys.len() == 0) return(false)
+		var dirs = {
+			0: {dx: 0, dy: -1, dir: "north", opp: "south"},
+			1: {dx: 0, dy: 1, dir: "south", opp: "north"},
+			2: {dx: -1, dy: 0, dir: "west", opp: "east"},
+			3: {dx: 1, dy: 0, dir: "east", opp: "west"}
+		}
+		for (var d = 0; d < dirs.len(); d = d + 1) {
+			var dir = dirs[d]
+			var nx = x + dir:dx
+			var ny = y + dir:dy
+			if (nx < 0 || ny < 0 || nx >= width || ny >= height)
+				continue
+			var neighbor = grid[ny][nx]
+			var neighbor_keys = neighbor.keys()
+			var new_neighbor = {}
+			for (var ni = 0; ni < neighbor_keys.len(); ni = ni + 1) {
+				var nk = neighbor_keys[ni]
+				var ok = false
+				for (var ci = 0; ci < cell_keys.len(); ci = ci + 1) {
+					var ck = cell_keys[ci]
+					if (compatible(ck, dir:dir, nk, rules) && compatible(nk, dir:opp, ck, rules)) {
+						ok = true
+						break
+					}
+				}
+				if (ok) new_neighbor[nk] = 1
+			}
+			var new_keys = new_neighbor.keys()
+			if (new_keys.len() == 0) return(false)
+			if (new_keys.len() < neighbor_keys.len()) {
+				var nrow = grid[ny]
+				nrow[nx] = new_neighbor
+				grid[ny] = nrow
+				queue[queue.len()] = {x: nx, y: ny}
+			}
         }
     }
     return(true)
 }
 
 function lowest_entropy(grid, width, height) {
-    var best = -1
-    var bx = -1
-    var by = -1
-    for (var y = 0; y < height; y = y + 1) {
-        for (var x = 0; x < width; x = x + 1) {
-            var e = cell_entropy(grid[y][x])
-            if (e > 1 && (best == -1 || e < best)) {
-                best = e
-                bx = x
-                by = y
-            }
-        }
-    }
+	var best = -1
+	var bx = -1
+	var by = -1
+	for (var y = 0; y < height; y = y + 1) {
+		for (var x = 0; x < width; x = x + 1) {
+			var e = cell_entropy(grid[y][x])
+			if (e > 1 && (best == -1 || e < best)) {
+				best = e
+				bx = x
+				by = y
+			}
+		}
+	}
     return({x: bx, y: by, e: best})
 }
 
 function render(grid, width, height) {
-    for (var y = 0; y < height; y = y + 1) {
-        var line = ""
-        for (var x = 0; x < width; x = x + 1) {
-            var ks = keys(grid[y][x])
-            var k = ks[0]
-            line = line + k
-        }
-        print(line)
-    }
+	for (var y = 0; y < height; y = y + 1) {
+		var line = ""
+		for (var x = 0; x < width; x = x + 1) {
+			var ks = grid[y][x].keys()
+			var k = ks[0]
+			line = line + k
+		}
+		print(line)
+	}
 }
 
 function main() {
     print("=== WFC Dungeon Demo ===")
-    var rules = build_rules(sample)
-    var width = 20
-    var height = 12
-    var allchars = keys(rules)
+	var rules = build_rules(sample)
+	var width = 20
+	var height = 12
+	var allchars = rules.keys()
 
-    var attempts = 0
-    while (attempts < 5) {
-        attempts = attempts + 1
-        // fresh grid
+	var attempts = 0
+	while (attempts < 5) {
+		attempts = attempts + 1
+		// fresh grid
         var grid = {}
-        for (var y = 0; y < height; y = y + 1) {
-            var row = {}
-            for (var x = 0; x < width; x = x + 1) {
-                var cell = {}
-                for (var i = 0; i < len(allchars); i = i + 1)
-                    cell[allchars[i]] = 1
-                row[x] = cell
-            }
-            grid[y] = row
-        }
+		for (var y = 0; y < height; y = y + 1) {
+			var row = {}
+			for (var x = 0; x < width; x = x + 1) {
+				var cell = {}
+				for (var i = 0; i < allchars.len(); i = i + 1)
+					cell[allchars[i]] = 1
+				row[x] = cell
+			}
+			grid[y] = row
+		}
 
         var success = true
         var iterations = 0
-        while (true) {
-            var pick = lowest_entropy(grid, width, height)
-            if (pick:e == -1) break // solved
-            if (!collapse(grid, pick:x, pick:y)) { success = false; break }
-            if (!propagate(grid, width, height, rules, pick:x, pick:y)) { success = false; break }
-            iterations = iterations + 1
+		while (true) {
+			var pick = lowest_entropy(grid, width, height)
+			if (pick:e == -1) break // solved
+			if (!collapse(grid, pick:x, pick:y)) { success = false; break }
+			if (!propagate(grid, width, height, rules, pick:x, pick:y)) { success = false; break }
+			iterations = iterations + 1
             if (iterations > width * height * 8) { success = false; break }
         }
 
-        if (success) {
-            render(grid, width, height)
-            return()
-        }
-    }
-    print("Failed to generate after retries")
+		if (success) {
+			render(grid, width, height)
+			return(none)
+		}
+	}
+	print("Failed to generate after retries")
 }

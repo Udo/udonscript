@@ -971,11 +971,11 @@ namespace
 			}
 			if (match_keyword("return"))
 			{
-				if (!expect_symbol("(", "Expected '(' after return"))
-					return false;
 				size_t value_count = 0;
-				if (!match_symbol(")"))
+				if (match_symbol("("))
 				{
+					if (match_symbol(")"))
+						return !make_error(previous(), "return requires a value").has_error;
 					do
 					{
 						if (!parse_expression(body, ctx))
@@ -985,9 +985,17 @@ namespace
 					if (!expect_symbol(")", "Expected ')' after return value"))
 						return false;
 				}
+				else
+				{
+					if (check_symbol("}") || is_end())
+						return !make_error(previous(), "return requires a value").has_error;
+					if (!parse_expression(body, ctx))
+						return false;
+					value_count = 1;
+				}
 				if (value_count == 0)
 				{
-					emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_none() });
+					return !make_error(previous(), "return requires a value").has_error;
 				}
 				else if (value_count > 1)
 				{
@@ -1281,6 +1289,50 @@ namespace
 				{
 					prop_chain.push_back(tokens[la + 1].text);
 					la += 2;
+				}
+				if (!prop_chain.empty() && la < tokens.size() && tokens[la].type == Token::Type::Symbol && tokens[la].text == "[")
+				{
+					int bracket_depth = 1;
+					size_t bracket_end = la + 1;
+					while (bracket_end < tokens.size() && bracket_depth > 0)
+					{
+						if (tokens[bracket_end].type == Token::Type::Symbol)
+						{
+							if (tokens[bracket_end].text == "[")
+								++bracket_depth;
+							else if (tokens[bracket_end].text == "]")
+								--bracket_depth;
+						}
+						if (bracket_depth > 0)
+							++bracket_end;
+					}
+					if (bracket_depth == 0 && bracket_end + 1 < tokens.size() &&
+						tokens[bracket_end + 1].type == Token::Type::Symbol && tokens[bracket_end + 1].text == "=")
+					{
+						advance(); // base identifier
+						ResolvedVariable base_ref;
+						if (!resolve_variable(ctx, base_name, base_ref))
+							return !make_error(previous(), "Undeclared variable '" + base_name + "'").has_error;
+						for (size_t i = 0; i < prop_chain.size(); ++i)
+						{
+							advance(); // ':'
+							advance(); // prop token
+						}
+						advance(); // '['
+						emit_load_var(body, base_ref);
+						for (const auto& prop : prop_chain)
+							emit(body, UdonInstruction::OpCode::GET_PROP, { make_string(prop) });
+						if (!parse_expression(body, ctx))
+							return false;
+						if (!expect_symbol("]", "Expected ']' after index"))
+							return false;
+						advance(); // '='
+						if (!parse_expression(body, ctx))
+							return false;
+						emit(body, UdonInstruction::OpCode::STORE_PROP, { make_string("[index]") });
+						produced_value = false;
+						return true;
+					}
 				}
 				if (!prop_chain.empty() && la < tokens.size() && tokens[la].type == Token::Type::Symbol && tokens[la].text == "=")
 				{
@@ -2148,6 +2200,14 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 	u32 current_line = 0;
 	u32 current_col = 0;
 	size_t steps_since_gc = 0;
+	const size_t gc_step_budget = 1'000'000;
+	const auto gc_start_time = std::chrono::steady_clock::now();
+	auto gc_elapsed_ms = [&]() -> u64
+	{
+		return static_cast<u64>(std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::steady_clock::now() - gc_start_time)
+				.count());
+	};
 	auto push_gc_root_and_collect = [&](const Value& v)
 	{
 		interp->stack.push_back(v);
@@ -2157,7 +2217,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 	auto maybe_collect_periodic = [&]()
 	{
 		++steps_since_gc;
-		if (steps_since_gc >= 256)
+		if (steps_since_gc >= gc_step_budget || gc_elapsed_ms() >= 100)
 		{
 			steps_since_gc = 0;
 			interp->collect_garbage(&env_stack, &eval_stack, 10);
@@ -3571,6 +3631,8 @@ void UdonInterpreter::clear()
 	for (auto* fn : heap_functions)
 		delete fn;
 	heap_functions.clear();
+	gc_runs = 0;
+	gc_time_ms = 0;
 }
 
 std::string UdonInterpreter::dump_instructions() const
@@ -3870,4 +3932,8 @@ void UdonInterpreter::collect_garbage(const std::vector<UdonEnvironment*>* env_r
 		}
 	}
 	heap_functions.swap(live_functions);
+
+	const auto end = std::chrono::steady_clock::now();
+	gc_time_ms += static_cast<u64>(std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
+	gc_runs += 1;
 }
