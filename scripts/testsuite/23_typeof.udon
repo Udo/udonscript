@@ -7,11 +7,6 @@ function main() {
 	print(typeof(true))
 	print(typeof(false))
 	
-	// Test vectors
-	print(typeof(vec2(1, 2)))
-	print(typeof(vec3(1, 2, 3)))
-	print(typeof(vec4(1, 2, 3, 4)))
-	
 	// Test arrays/objects
 	var obj = {x: 10, y: 20}
 	print(typeof(obj))

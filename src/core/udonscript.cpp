@@ -1971,23 +1971,6 @@ static bool get_index_value(const UdonValue& obj, const UdonValue& index, UdonVa
 			out = make_none();
 		return true;
 	}
-	if (obj.type == UdonValue::Type::Vector2 || obj.type == UdonValue::Type::Vector3 || obj.type == UdonValue::Type::Vector4)
-	{
-		s32 idx = static_cast<s32>(as_number(index));
-		if (idx == 0)
-			out = make_float(obj.type == UdonValue::Type::Vector2 ? obj.vec2_value.x : obj.type == UdonValue::Type::Vector3 ? obj.vec3_value.x
-																															: obj.vec4_value.x);
-		else if (idx == 1)
-			out = make_float(obj.type == UdonValue::Type::Vector2 ? obj.vec2_value.y : obj.type == UdonValue::Type::Vector3 ? obj.vec3_value.y
-																															: obj.vec4_value.y);
-		else if (idx == 2 && (obj.type == UdonValue::Type::Vector3 || obj.type == UdonValue::Type::Vector4))
-			out = make_float(obj.type == UdonValue::Type::Vector3 ? obj.vec3_value.z : obj.vec4_value.z);
-		else if (idx == 3 && obj.type == UdonValue::Type::Vector4)
-			out = make_float(obj.vec4_value.w);
-		else
-			out = make_none();
-		return true;
-	}
 	if (index.type == UdonValue::Type::String)
 	{
 		return get_property_value(obj, index.string_value, out);
@@ -2255,15 +2238,6 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 					else
 						v.f32_value = -v.f32_value;
 				}
-				else if (udon_script_helpers::is_vector(v))
-				{
-					if (v.type == Value::Type::Vector2)
-						v.vec2_value = v.vec2_value * -1.0f;
-					else if (v.type == Value::Type::Vector3)
-						v.vec3_value = v.vec3_value * -1.0f;
-					else
-						v.vec4_value = v.vec4_value * -1.0f;
-				}
 				else
 				{
 					fail("Cannot negate value");
@@ -2411,7 +2385,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				Value v{};
 				if (!pop_value(eval_stack, v, ok))
 					return ok;
-				eval_stack.push_back(udon_script_helpers::bool_value(udon_script_helpers::is_truthy(v)));
+				eval_stack.push_back(udon_script_helpers::make_bool(udon_script_helpers::is_truthy(v)));
 				break;
 			}
 			case UdonInstruction::OpCode::LOGICAL_NOT:
@@ -2419,7 +2393,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				Value v{};
 				if (!pop_value(eval_stack, v, ok))
 					return ok;
-				eval_stack.push_back(udon_script_helpers::bool_value(!udon_script_helpers::is_truthy(v)));
+				eval_stack.push_back(udon_script_helpers::make_bool(!udon_script_helpers::is_truthy(v)));
 				break;
 			}
 			case UdonInstruction::OpCode::MAKE_CLOSURE:

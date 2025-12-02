@@ -49,9 +49,6 @@ struct UdonValue
 		S32,
 		F32,
 		String,
-		Vector2,
-		Vector3,
-		Vector4,
 		Bool,
 		Array, // managed array/map
 		Function, // managed closure/function object
@@ -63,9 +60,6 @@ struct UdonValue
 	{
 		s32 s32_value;
 		f32 f32_value;
-		Vector2 vec2_value;
-		Vector3 vec3_value;
-		Vector4 vec4_value;
 		void* ptr_value; // for entity, material, mesh, texture references
 	};
 	std::string string_value;

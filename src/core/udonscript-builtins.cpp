@@ -1098,42 +1098,6 @@ namespace udon_script_builtins
 			return true;
 		});
 
-		interp->register_function("vec2", "x:number, y:number", "vec2", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
-		{
-			if (positional.size() != 2)
-			{
-				err.has_error = true;
-				err.opt_error_message = "vec2 expects (x, y)";
-				return true;
-			}
-			out = make_vec2(static_cast<f32>(as_number(positional[0])), static_cast<f32>(as_number(positional[1])));
-			return true;
-		});
-
-		interp->register_function("vec3", "x:number, y:number, z:number", "vec3", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
-		{
-			if (positional.size() != 3)
-			{
-				err.has_error = true;
-				err.opt_error_message = "vec3 expects (x, y, z)";
-				return true;
-			}
-			out = make_vec3(static_cast<f32>(as_number(positional[0])), static_cast<f32>(as_number(positional[1])), static_cast<f32>(as_number(positional[2])));
-			return true;
-		});
-
-		interp->register_function("vec4", "x:number, y:number, z:number, w:number", "vec4", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
-		{
-			if (positional.size() != 4)
-			{
-				err.has_error = true;
-				err.opt_error_message = "vec4 expects (x, y, z, w)";
-				return true;
-			}
-			out = make_vec4(static_cast<f32>(as_number(positional[0])), static_cast<f32>(as_number(positional[1])), static_cast<f32>(as_number(positional[2])), static_cast<f32>(as_number(positional[3])));
-			return true;
-		});
-
 		unary("sqrt", std::sqrt);
 		unary("abs", std::fabs);
 		unary("sin", std::sin);
