@@ -1,0 +1,8 @@
+// Test: dl_open and dl_call using libm pow
+
+function main() {
+    var ns = dl_open("libm.so.6")
+    var r = ns.call("pow", 2, 3)
+    print("pow:", r)
+    ns.close()
+}

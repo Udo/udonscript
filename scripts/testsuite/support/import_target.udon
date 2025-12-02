@@ -1,0 +1,10 @@
+// target script for import tests
+var tg = 42
+
+function add(a, b) {
+    return(a + b)
+}
+
+function hello(name) {
+    return("hi " + name)
+}

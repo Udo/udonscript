@@ -10,6 +10,9 @@
 #include <memory>
 #include <functional>
 #include <utility>
+#if defined(__unix__) || defined(__APPLE__)
+#include <dlfcn.h>
+#endif
 
 using namespace udon_script_helpers;
 using namespace udon_script_builtins;
@@ -2164,6 +2167,100 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 							call_result = udon_script_helpers::make_string(rendered);
 							return true;
 						}
+						else if (fn_val.function->handler == "dl_call")
+						{
+#if defined(__unix__) || defined(__APPLE__)
+							if (positional.size() < 2)
+							{
+								inner_err.has_error = true;
+								inner_err.opt_error_message = "dl_call expects (namespace, symbol, args...)";
+								return true;
+							}
+							const Value& symbol_val = positional[1];
+							if (symbol_val.type != Value::Type::String)
+							{
+								inner_err.has_error = true;
+								inner_err.opt_error_message = "dl_call symbol must be a string";
+								return true;
+							}
+							void* handle = interp->get_dl_handle(fn_val.function->handler_data);
+							if (!handle)
+							{
+								inner_err.has_error = true;
+								inner_err.opt_error_message = "dl_call: invalid handle";
+								return true;
+							}
+							void* sym = dlsym(handle, symbol_val.string_value.c_str());
+							if (!sym)
+							{
+								inner_err.has_error = true;
+								inner_err.opt_error_message = "dl_call: symbol not found";
+								return true;
+							}
+
+							std::vector<double> args;
+							for (size_t i = 2; i < positional.size(); ++i)
+							{
+								const Value& v = positional[i];
+								if (v.type == Value::Type::S32)
+									args.push_back(static_cast<double>(v.s32_value));
+								else if (v.type == Value::Type::F32)
+									args.push_back(static_cast<double>(v.f32_value));
+								else
+								{
+									inner_err.has_error = true;
+									inner_err.opt_error_message = "dl_call only supports numeric arguments";
+									return true;
+								}
+							}
+							double result = 0.0;
+							switch (args.size())
+							{
+								case 0:
+									result = (reinterpret_cast<double (*)()>(sym))();
+									break;
+								case 1:
+									result = (reinterpret_cast<double (*)(double)>(sym))(args[0]);
+									break;
+								case 2:
+									result = (reinterpret_cast<double (*)(double, double)>(sym))(args[0], args[1]);
+									break;
+								case 3:
+									result = (reinterpret_cast<double (*)(double, double, double)>(sym))(args[0], args[1], args[2]);
+									break;
+								case 4:
+									result = (reinterpret_cast<double (*)(double, double, double, double)>(sym))(args[0], args[1], args[2], args[3]);
+									break;
+								default:
+									inner_err.has_error = true;
+									inner_err.opt_error_message = "dl_call supports up to 4 arguments";
+									return true;
+							}
+							call_result = udon_script_helpers::make_float(static_cast<f32>(result));
+							return true;
+#else
+							inner_err.has_error = true;
+							inner_err.opt_error_message = "dl_call not supported on this platform";
+							return true;
+#endif
+						}
+						else if (fn_val.function->handler == "dl_close")
+						{
+#if defined(__unix__) || defined(__APPLE__)
+							if (!interp->close_dl_handle(fn_val.function->handler_data))
+							{
+								inner_err.has_error = true;
+								inner_err.opt_error_message = "dl_close: invalid handle";
+								return true;
+							}
+							call_result = udon_script_helpers::make_none();
+							return true;
+#else
+							inner_err.has_error = true;
+							inner_err.opt_error_message = "dl_close not supported on this platform";
+							return true;
+#endif
+						}
 						return false;
 					}
 					auto code_it = interp->instructions.find(fn_val.function->function_name);
@@ -2201,6 +2298,12 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 						else
 						{
 							handled = true;
+							auto pit = interp->function_params.find(member_fn.function->function_name);
+							bool has_variadic = interp->function_variadic.find(member_fn.function->function_name) != interp->function_variadic.end();
+							if (!has_variadic && pit != interp->function_params.end() && positional.size() == pit->second.size() + 1)
+							{
+								positional.erase(positional.begin());
+							}
 							call_closure(member_fn);
 						}
 					}
@@ -2303,6 +2406,14 @@ UdonInterpreter::UdonInterpreter()
 
 UdonInterpreter::~UdonInterpreter()
 {
+	for (void* h : dl_handles)
+	{
+#if defined(__unix__) || defined(__APPLE__)
+		if (h)
+			dlclose(h);
+#endif
+	}
+	dl_handles.clear();
 	for (auto* arr : heap_arrays)
 		delete arr;
 	for (auto* fn : heap_functions)
@@ -2321,6 +2432,34 @@ UdonValue::ManagedFunction* UdonInterpreter::allocate_function()
 	auto* fn = new UdonValue::ManagedFunction();
 	heap_functions.push_back(fn);
 	return fn;
+}
+
+s32 UdonInterpreter::register_dl_handle(void* handle)
+{
+	dl_handles.push_back(handle);
+	return static_cast<s32>(dl_handles.size() - 1);
+}
+
+void* UdonInterpreter::get_dl_handle(s32 id)
+{
+	if (id < 0 || static_cast<size_t>(id) >= dl_handles.size())
+		return nullptr;
+	return dl_handles[static_cast<size_t>(id)];
+}
+
+bool UdonInterpreter::close_dl_handle(s32 id)
+{
+	if (id < 0 || static_cast<size_t>(id) >= dl_handles.size())
+		return false;
+	if (dl_handles[static_cast<size_t>(id)])
+	{
+#if defined(__unix__) || defined(__APPLE__)
+		dlclose(dl_handles[static_cast<size_t>(id)]);
+#endif
+		dl_handles[static_cast<size_t>(id)] = nullptr;
+		return true;
+	}
+	return false;
 }
 
 void UdonInterpreter::register_function(const std::string& name,
@@ -2792,6 +2931,14 @@ CodeLocation UdonInterpreter::run(std::string function_name,
 
 void UdonInterpreter::clear()
 {
+	for (void* h : dl_handles)
+	{
+#if defined(__unix__) || defined(__APPLE__)
+		if (h)
+			dlclose(h);
+#endif
+	}
+	dl_handles.clear();
 	instructions.clear();
 	function_params.clear();
 	function_variadic.clear();

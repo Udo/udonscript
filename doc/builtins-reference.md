@@ -126,6 +126,26 @@ Writes data to a file, replacing existing content.
 write_entire_file("output.txt", "New content")
 ```
 
+### `dl_open(path)`
+
+POSIX only. Opens a shared object at `path` and returns a namespace array containing `_handle`, `call`, and `close`.
+
+**Parameters:**
+- `path: string` - Path to the shared object (e.g., `libm.so.6`)
+
+**Returns:** `array` - Namespace with `_handle`, `call`, `close`
+
+**Usage:**
+- `ns.call(symbol, args...)` invokes a numeric function (up to 4 arguments, converted to double) and returns a number.
+- `ns.close()` unloads the library.
+
+**Example:**
+```javascript
+var ns = dl_open("libm.so.6")
+print(ns.call("pow", 2, 3)) // 8
+ns.close()
+```
+
 ### `file_size(path)`
 
 Returns the size of a file in bytes.

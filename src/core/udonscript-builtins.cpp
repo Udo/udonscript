@@ -14,6 +14,11 @@
 #include <iomanip>
 #include <sstream>
 #include <iterator>
+#include <unordered_set>
+#if defined(__unix__) || defined(__APPLE__)
+#include <dlfcn.h>
+#endif
+#include <unordered_set>
 
 using namespace udon_script_helpers;
 
@@ -702,6 +707,48 @@ namespace udon_script_builtins
 			return true;
 		});
 
+		interp->register_function("dl_open", "path:string", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+#if !defined(__unix__) && !defined(__APPLE__)
+			err.has_error = true;
+			err.opt_error_message = "dl_open is only supported on POSIX platforms";
+			return true;
+#else
+			if (positional.size() != 1 || positional[0].type != UdonValue::Type::String)
+			{
+				err.has_error = true;
+				err.opt_error_message = "dl_open expects a single string path";
+				return true;
+			}
+			std::string path = positional[0].string_value;
+			void* handle = dlopen(path.c_str(), RTLD_NOW);
+			if (!handle)
+			{
+				err.has_error = true;
+				err.opt_error_message = std::string("dl_open failed: ") + dlerror();
+				return true;
+			}
+			s32 handle_id = interp->register_dl_handle(handle);
+
+			out = make_array();
+			array_set(out, "_handle", make_int(handle_id));
+
+			auto make_handler = [&](const std::string& tag) -> UdonValue
+			{
+				UdonValue fn{};
+				fn.type = UdonValue::Type::Function;
+				fn.function = interp->allocate_function();
+				fn.function->handler = tag;
+				fn.function->handler_data = handle_id;
+				return fn;
+			};
+
+			array_set(out, "call", make_handler("dl_call"));
+			array_set(out, "close", make_handler("dl_close"));
+			return true;
+#endif
+		});
+
 		interp->register_function("file_size", "path:string", "s32", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 		{
 			if (positional.size() != 1)
@@ -740,6 +787,64 @@ namespace udon_script_builtins
 				return true;
 			}
 			out = make_int(static_cast<s32>(st.st_mtime));
+			return true;
+		});
+
+		interp->register_function("import", "path:string", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+			if (positional.size() != 1 || positional[0].type != UdonValue::Type::String)
+			{
+				err.has_error = true;
+				err.opt_error_message = "import expects a single string path";
+				return true;
+			}
+
+			std::string path = positional[0].string_value;
+			std::ifstream file(path, std::ios::binary);
+			if (!file)
+			{
+				err.has_error = true;
+				err.opt_error_message = "import: could not open '" + path + "'";
+				return true;
+			}
+			std::ostringstream ss;
+			ss << file.rdbuf();
+			std::string source = ss.str();
+
+			std::unordered_set<std::string> fns_before;
+			for (const auto& kv : interp->instructions)
+				fns_before.insert(kv.first);
+			std::unordered_set<std::string> globals_before;
+			for (const auto& kv : interp->globals)
+				globals_before.insert(kv.first);
+
+			CodeLocation compile_res = interp->compile_append(source);
+			if (compile_res.has_error)
+			{
+				err = compile_res;
+				return true;
+			}
+
+			out = make_array();
+			for (const auto& kv : interp->globals)
+			{
+				if (globals_before.find(kv.first) != globals_before.end())
+					continue;
+				array_set(out, kv.first, kv.second);
+			}
+			for (const auto& kv : interp->instructions)
+			{
+				const std::string& name = kv.first;
+				if (fns_before.find(name) != fns_before.end())
+					continue;
+				if (name.rfind("__", 0) == 0)
+					continue;
+				UdonValue fn_val;
+				fn_val.type = UdonValue::Type::Function;
+				fn_val.function = interp->allocate_function();
+				fn_val.function->function_name = name;
+				array_set(out, name, fn_val);
+			}
 			return true;
 		});
 

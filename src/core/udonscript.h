@@ -150,6 +150,7 @@ struct UdonInterpreter
 	std::vector<UdonValue> stack;
 	std::vector<UdonValue::ManagedArray*> heap_arrays;
 	std::vector<UdonValue::ManagedFunction*> heap_functions;
+	std::vector<void*> dl_handles;
 	s32 global_init_counter = 0;
 	s32 lambda_counter = 0;
 
@@ -173,6 +174,9 @@ struct UdonInterpreter
 		UdonBuiltinFunction fn);
 	UdonValue::ManagedArray* allocate_array();
 	UdonValue::ManagedFunction* allocate_function();
+	s32 register_dl_handle(void* handle);
+	void* get_dl_handle(s32 id);
+	bool close_dl_handle(s32 id);
 };
 
 struct UdonValue::ManagedArray
@@ -187,5 +191,6 @@ struct UdonValue::ManagedFunction
 	std::unordered_map<std::string, UdonValue> captured_locals;
 	std::string handler; // optional builtin handler tag
 	std::string template_body; // optional payload for template handlers
+	s32 handler_data = -1; // optional numeric payload for handlers
 	bool marked = false;
 };

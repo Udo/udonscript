@@ -1,0 +1,8 @@
+// Test: import builtin loads functions and globals into a namespace array
+
+function main() {
+    var ns = import("scripts/testsuite/support/import_target.udon")
+    print("add:", ns.add(2, 3))
+    print("hello:", ns.hello("bob"))
+    print("tg:", ns:tg)
+}
