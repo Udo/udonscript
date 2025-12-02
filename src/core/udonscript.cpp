@@ -2171,170 +2171,133 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				CodeLocation inner_err{};
 				inner_err.has_error = false;
 
-					auto call_closure = [&](const Value& fn_val) -> bool
+				auto call_closure = [&](const Value& fn_val) -> bool
+				{
+					if (fn_val.type != Value::Type::Function || !fn_val.function)
+						return false;
+					if (!fn_val.function->handler.empty())
 					{
-						if (fn_val.type != Value::Type::Function || !fn_val.function)
-							return false;
-						if (!fn_val.function->handler.empty())
+						if (fn_val.function->handler == "html_template")
 						{
-							if (fn_val.function->handler == "html_template")
+							std::string rendered;
+							std::unordered_map<std::string, UdonValue> replacements;
+							if (!positional.empty() && positional[0].type == Value::Type::Array && positional[0].array_map)
+								replacements = positional[0].array_map->values;
+							const std::string& tmpl = fn_val.function->template_body;
+							size_t pos = 0;
+							while (pos < tmpl.size())
 							{
-								std::string rendered;
-								std::unordered_map<std::string, UdonValue> replacements;
-								if (!positional.empty() && positional[0].type == Value::Type::Array && positional[0].array_map)
-									replacements = positional[0].array_map->values;
-								const std::string& tmpl = fn_val.function->template_body;
-								size_t pos = 0;
-								while (pos < tmpl.size())
+								size_t brace = tmpl.find('{', pos);
+								if (brace == std::string::npos)
 								{
-									size_t brace = tmpl.find('{', pos);
-									if (brace == std::string::npos)
-									{
-										rendered.append(tmpl.substr(pos));
-										break;
-									}
-									rendered.append(tmpl.substr(pos, brace - pos));
-									size_t end = tmpl.find('}', brace + 1);
-									if (end == std::string::npos)
-									{
-										rendered.append(tmpl.substr(brace));
-										break;
-									}
-									std::string key = tmpl.substr(brace + 1, end - brace - 1);
-									auto it = replacements.find(key);
-									if (it != replacements.end())
-										rendered.append(udon_script_helpers::value_to_string(it->second));
-									pos = end + 1;
+									rendered.append(tmpl.substr(pos));
+									break;
 								}
-								call_result = udon_script_helpers::make_string(rendered);
+								rendered.append(tmpl.substr(pos, brace - pos));
+								size_t end = tmpl.find('}', brace + 1);
+								if (end == std::string::npos)
+								{
+									rendered.append(tmpl.substr(brace));
+									break;
+								}
+								std::string key = tmpl.substr(brace + 1, end - brace - 1);
+								auto it = replacements.find(key);
+								if (it != replacements.end())
+									rendered.append(udon_script_helpers::value_to_string(it->second));
+								pos = end + 1;
+							}
+							call_result = udon_script_helpers::make_string(rendered);
+							return true;
+						}
+						else if (fn_val.function->handler == "import_forward")
+						{
+							UdonInterpreter* sub = interp->get_imported_interpreter(fn_val.function->handler_data);
+							if (!sub)
+							{
+								inner_err.has_error = true;
+								inner_err.opt_error_message = "import_forward: invalid module";
 								return true;
 							}
-							else if (fn_val.function->handler == "import_forward")
-							{
-								UdonInterpreter* sub = interp->get_imported_interpreter(fn_val.function->handler_data);
-								if (!sub)
-								{
-									inner_err.has_error = true;
-									inner_err.opt_error_message = "import_forward: invalid module";
-									return true;
-								}
-								CodeLocation nested = sub->run(fn_val.function->template_body, positional, named, call_result);
-								if (nested.has_error)
-									inner_err = nested;
-								return true;
-							}
-							else if (fn_val.function->handler == "dl_call")
-							{
+							CodeLocation nested = sub->run(fn_val.function->template_body, positional, named, call_result);
+							if (nested.has_error)
+								inner_err = nested;
+							return true;
+						}
+						else if (fn_val.function->handler == "dl_call")
+						{
 #if defined(__unix__) || defined(__APPLE__)
-								if (positional.size() < 1)
+							if (positional.size() < 1)
+							{
+								inner_err.has_error = true;
+								inner_err.opt_error_message = "dl_call expects (symbol, args...)";
+								return true;
+							}
+							const Value& symbol_val = positional[0];
+							if (symbol_val.type != Value::Type::String)
+							{
+								inner_err.has_error = true;
+								inner_err.opt_error_message = "dl_call symbol must be a string";
+								return true;
+							}
+							void* handle = interp->get_dl_handle(fn_val.function->handler_data);
+							if (!handle)
+							{
+								inner_err.has_error = true;
+								inner_err.opt_error_message = "dl_call: invalid handle";
+								return true;
+							}
+							std::string sig_text = symbol_val.string_value;
+							std::string sym_name = sig_text;
+							std::vector<std::string> arg_types;
+							std::string ret_type = "f32";
+							auto trim = [](std::string s)
+							{
+								while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front())))
+									s.erase(s.begin());
+								while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back())))
+									s.pop_back();
+								return s;
+							};
+							size_t lparen = sig_text.find('(');
+							size_t rparen = sig_text.find(')');
+							if (lparen != std::string::npos && rparen != std::string::npos && rparen > lparen)
+							{
+								sym_name = trim(sig_text.substr(0, lparen));
+								std::string args_sig = sig_text.substr(lparen + 1, rparen - lparen - 1);
+								std::stringstream ss(args_sig);
+								std::string item;
+								while (std::getline(ss, item, ','))
 								{
-									inner_err.has_error = true;
-									inner_err.opt_error_message = "dl_call expects (symbol, args...)";
-									return true;
+									arg_types.push_back(trim(item));
 								}
-								const Value& symbol_val = positional[0];
-								if (symbol_val.type != Value::Type::String)
+								if (rparen + 1 < sig_text.size() && sig_text[rparen + 1] == ':')
 								{
-									inner_err.has_error = true;
-									inner_err.opt_error_message = "dl_call symbol must be a string";
-									return true;
+									ret_type = trim(sig_text.substr(rparen + 2));
 								}
-								void* handle = interp->get_dl_handle(fn_val.function->handler_data);
-								if (!handle)
-								{
-									inner_err.has_error = true;
-									inner_err.opt_error_message = "dl_call: invalid handle";
-									return true;
-								}
-								std::string sig_text = symbol_val.string_value;
-								std::string sym_name = sig_text;
-								std::vector<std::string> arg_types;
-								std::string ret_type = "f32";
-								auto trim = [](std::string s)
-								{
-									while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front())))
-										s.erase(s.begin());
-									while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back())))
-										s.pop_back();
-									return s;
-								};
-								size_t lparen = sig_text.find('(');
-								size_t rparen = sig_text.find(')');
-								if (lparen != std::string::npos && rparen != std::string::npos && rparen > lparen)
-								{
-									sym_name = trim(sig_text.substr(0, lparen));
-									std::string args_sig = sig_text.substr(lparen + 1, rparen - lparen - 1);
-									std::stringstream ss(args_sig);
-									std::string item;
-									while (std::getline(ss, item, ','))
-									{
-										arg_types.push_back(trim(item));
-									}
-									if (rparen + 1 < sig_text.size() && sig_text[rparen + 1] == ':')
-									{
-										ret_type = trim(sig_text.substr(rparen + 2));
-									}
-								}
-								void* sym = dlsym(handle, sym_name.c_str());
-								if (!sym)
-								{
-									inner_err.has_error = true;
-									inner_err.opt_error_message = "dl_call: symbol not found";
-									return true;
-								}
+							}
+							void* sym = dlsym(handle, sym_name.c_str());
+							if (!sym)
+							{
+								inner_err.has_error = true;
+								inner_err.opt_error_message = "dl_call: symbol not found";
+								return true;
+							}
 
-								std::vector<double> args;
-								if (!arg_types.empty())
+							std::vector<double> args;
+							if (!arg_types.empty())
+							{
+								if (positional.size() - 1 != arg_types.size())
 								{
-									if (positional.size() - 1 != arg_types.size())
-									{
-										inner_err.has_error = true;
-										inner_err.opt_error_message = "dl_call: argument count mismatch";
-										return true;
-									}
-									for (size_t i = 0; i < arg_types.size(); ++i)
-									{
-										const Value& v = positional[i + 1];
-										std::string t = arg_types[i];
-										if (t == "s32")
-										{
-											if (v.type == Value::Type::S32)
-												args.push_back(static_cast<double>(v.s32_value));
-											else if (v.type == Value::Type::F32)
-												args.push_back(static_cast<double>(v.f32_value));
-											else
-											{
-												inner_err.has_error = true;
-												inner_err.opt_error_message = "dl_call: expected s32 argument";
-												return true;
-											}
-										}
-										else if (t == "f32" || t == "f64" || t == "double")
-										{
-											if (v.type == Value::Type::F32)
-												args.push_back(static_cast<double>(v.f32_value));
-											else if (v.type == Value::Type::S32)
-												args.push_back(static_cast<double>(v.s32_value));
-											else
-											{
-												inner_err.has_error = true;
-												inner_err.opt_error_message = "dl_call: expected float argument";
-												return true;
-											}
-										}
-										else
-										{
-											inner_err.has_error = true;
-											inner_err.opt_error_message = "dl_call: unsupported argument type '" + t + "'";
-											return true;
-										}
-									}
+									inner_err.has_error = true;
+									inner_err.opt_error_message = "dl_call: argument count mismatch";
+									return true;
 								}
-								else
+								for (size_t i = 0; i < arg_types.size(); ++i)
 								{
-									for (size_t i = 1; i < positional.size(); ++i)
+									const Value& v = positional[i + 1];
+									std::string t = arg_types[i];
+									if (t == "s32")
 									{
-										const Value& v = positional[i];
 										if (v.type == Value::Type::S32)
 											args.push_back(static_cast<double>(v.s32_value));
 										else if (v.type == Value::Type::F32)
@@ -2342,82 +2305,119 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 										else
 										{
 											inner_err.has_error = true;
-											inner_err.opt_error_message = "dl_call only supports numeric arguments";
+											inner_err.opt_error_message = "dl_call: expected s32 argument";
 											return true;
 										}
 									}
-								}
-								double result = 0.0;
-								switch (args.size())
-								{
-									case 0:
-										result = (reinterpret_cast<double (*)()>(sym))();
-										break;
-									case 1:
-										result = (reinterpret_cast<double (*)(double)>(sym))(args[0]);
-										break;
-									case 2:
-										result = (reinterpret_cast<double (*)(double, double)>(sym))(args[0], args[1]);
-										break;
-									case 3:
-										result = (reinterpret_cast<double (*)(double, double, double)>(sym))(args[0], args[1], args[2]);
-										break;
-									case 4:
-										result = (reinterpret_cast<double (*)(double, double, double, double)>(sym))(args[0], args[1], args[2], args[3]);
-										break;
-									default:
+									else if (t == "f32" || t == "f64" || t == "double")
+									{
+										if (v.type == Value::Type::F32)
+											args.push_back(static_cast<double>(v.f32_value));
+										else if (v.type == Value::Type::S32)
+											args.push_back(static_cast<double>(v.s32_value));
+										else
+										{
+											inner_err.has_error = true;
+											inner_err.opt_error_message = "dl_call: expected float argument";
+											return true;
+										}
+									}
+									else
+									{
 										inner_err.has_error = true;
-										inner_err.opt_error_message = "dl_call supports up to 4 arguments";
+										inner_err.opt_error_message = "dl_call: unsupported argument type '" + t + "'";
 										return true;
+									}
 								}
-								if (ret_type == "s32")
-									call_result = udon_script_helpers::make_int(static_cast<s32>(result));
-								else
-									call_result = udon_script_helpers::make_float(static_cast<f32>(result));
-								return true;
-#else
-								inner_err.has_error = true;
-								inner_err.opt_error_message = "dl_call not supported on this platform";
-								return true;
-#endif
 							}
-							else if (fn_val.function->handler == "dl_close")
+							else
 							{
-#if defined(__unix__) || defined(__APPLE__)
-								if (!interp->close_dl_handle(fn_val.function->handler_data))
+								for (size_t i = 1; i < positional.size(); ++i)
 								{
-									inner_err.has_error = true;
-									inner_err.opt_error_message = "dl_close: invalid handle";
-									return true;
+									const Value& v = positional[i];
+									if (v.type == Value::Type::S32)
+										args.push_back(static_cast<double>(v.s32_value));
+									else if (v.type == Value::Type::F32)
+										args.push_back(static_cast<double>(v.f32_value));
+									else
+									{
+										inner_err.has_error = true;
+										inner_err.opt_error_message = "dl_call only supports numeric arguments";
+										return true;
+									}
 								}
-								call_result = udon_script_helpers::make_none();
-								return true;
-#else
-								inner_err.has_error = true;
-								inner_err.opt_error_message = "dl_close not supported on this platform";
-								return true;
-#endif
 							}
-							return false;
-						}
-						auto code_it = interp->instructions.find(fn_val.function->function_name);
-						if (code_it == interp->instructions.end())
-						{
-							inner_err.has_error = true;
-							inner_err.opt_error_message = "Function '" + fn_val.function->function_name + "' not found";
+							double result = 0.0;
+							switch (args.size())
+							{
+								case 0:
+									result = (reinterpret_cast<double (*)()>(sym))();
+									break;
+								case 1:
+									result = (reinterpret_cast<double (*)(double)>(sym))(args[0]);
+									break;
+								case 2:
+									result = (reinterpret_cast<double (*)(double, double)>(sym))(args[0], args[1]);
+									break;
+								case 3:
+									result = (reinterpret_cast<double (*)(double, double, double)>(sym))(args[0], args[1], args[2]);
+									break;
+								case 4:
+									result = (reinterpret_cast<double (*)(double, double, double, double)>(sym))(args[0], args[1], args[2], args[3]);
+									break;
+								default:
+									inner_err.has_error = true;
+									inner_err.opt_error_message = "dl_call supports up to 4 arguments";
+									return true;
+							}
+							if (ret_type == "s32")
+								call_result = udon_script_helpers::make_int(static_cast<s32>(result));
+							else
+								call_result = udon_script_helpers::make_float(static_cast<f32>(result));
 							return true;
+#else
+							inner_err.has_error = true;
+							inner_err.opt_error_message = "dl_call not supported on this platform";
+							return true;
+#endif
 						}
-						auto param_it = interp->function_params.find(fn_val.function->function_name);
-						std::vector<std::string> fn_params = (param_it != interp->function_params.end()) ? param_it->second : std::vector<std::string>();
-						std::string var_param;
-						auto var_it = interp->function_variadic.find(fn_val.function->function_name);
-						if (var_it != interp->function_variadic.end())
-							var_param = var_it->second;
-						CodeLocation nested = execute_function(interp, code_it->second, fn_params, var_param, &fn_val.function->captured_locals, positional, named, call_result);
-						if (nested.has_error)
-							inner_err = nested;
+						else if (fn_val.function->handler == "dl_close")
+						{
+#if defined(__unix__) || defined(__APPLE__)
+							if (!interp->close_dl_handle(fn_val.function->handler_data))
+							{
+								inner_err.has_error = true;
+								inner_err.opt_error_message = "dl_close: invalid handle";
+								return true;
+							}
+							call_result = udon_script_helpers::make_none();
+							return true;
+#else
+							inner_err.has_error = true;
+							inner_err.opt_error_message = "dl_close not supported on this platform";
+							return true;
+#endif
+						}
+						return false;
+					}
+					auto code_it = interp->instructions.find(fn_val.function->function_name);
+					if (code_it == interp->instructions.end())
+					{
+						inner_err.has_error = true;
+						inner_err.opt_error_message = "Function '" + fn_val.function->function_name + "' not found";
 						return true;
-					};
+					}
+					auto param_it = interp->function_params.find(fn_val.function->function_name);
+					std::vector<std::string> fn_params = (param_it != interp->function_params.end()) ? param_it->second : std::vector<std::string>();
+					std::string var_param;
+					auto var_it = interp->function_variadic.find(fn_val.function->function_name);
+					if (var_it != interp->function_variadic.end())
+						var_param = var_it->second;
+					CodeLocation nested = execute_function(interp, code_it->second, fn_params, var_param, &fn_val.function->captured_locals, positional, named, call_result);
+					if (nested.has_error)
+						inner_err = nested;
+					return true;
+				};
 
 				if (callee.empty())
 				{
