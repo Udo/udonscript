@@ -537,6 +537,38 @@ namespace udon_script_builtins
 			return true;
 		});
 
+		interp->register_function("__gc_collect", "budget_ms?:s32", "none", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+			u32 budget = 0;
+			if (!positional.empty())
+			{
+				if (positional[0].type != UdonValue::Type::S32)
+				{
+					err.has_error = true;
+					err.opt_error_message = "__gc_collect expects an optional integer budget (ms)";
+					return true;
+				}
+				s32 val = positional[0].s32_value;
+				if (val > 0)
+					budget = static_cast<u32>(val);
+			}
+			interp->collect_garbage(nullptr, nullptr, budget);
+			out = make_none();
+			return true;
+		});
+
+		interp->register_function("__gc_stats", "", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>&, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation&)
+		{
+			out = make_array();
+			array_set(out, "envs", make_int(static_cast<s32>(interp->heap_environments.size())));
+			array_set(out, "arrays", make_int(static_cast<s32>(interp->heap_arrays.size())));
+			array_set(out, "functions", make_int(static_cast<s32>(interp->heap_functions.size())));
+			array_set(out, "stack_roots", make_int(static_cast<s32>(interp->stack.size())));
+			array_set(out, "active_env_root_sets", make_int(static_cast<s32>(interp->active_env_roots.size())));
+			array_set(out, "active_value_root_sets", make_int(static_cast<s32>(interp->active_value_roots.size())));
+			return true;
+		});
+
 		auto register_alias = [interp](const std::string& alias, const std::string& target)
 		{
 			auto it = interp->builtins.find(target);

@@ -10,6 +10,7 @@
 #include <memory>
 #include <functional>
 #include <utility>
+#include <chrono>
 #if defined(__unix__) || defined(__APPLE__)
 #include <dlfcn.h>
 #endif
@@ -2100,6 +2101,23 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 	}
 
 	std::vector<Value> eval_stack;
+	struct RootGuard
+	{
+		UdonInterpreter* interp_ptr;
+		std::vector<UdonEnvironment*>* envs;
+		std::vector<Value>* values;
+		RootGuard(UdonInterpreter* interp_in, std::vector<UdonEnvironment*>* env_ptr, std::vector<Value>* val_ptr)
+			: interp_ptr(interp_in), envs(env_ptr), values(val_ptr)
+		{
+			interp_ptr->active_env_roots.push_back(envs);
+			interp_ptr->active_value_roots.push_back(values);
+		}
+		~RootGuard()
+		{
+			interp_ptr->active_env_roots.pop_back();
+			interp_ptr->active_value_roots.pop_back();
+		}
+	} root_guard(interp, &env_stack, &eval_stack);
 
 	auto pop_checked = [&](Value& out) -> bool
 	{
@@ -2129,11 +2147,21 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 	size_t ip = 0;
 	u32 current_line = 0;
 	u32 current_col = 0;
+	size_t steps_since_gc = 0;
 	auto push_gc_root_and_collect = [&](const Value& v)
 	{
 		interp->stack.push_back(v);
-		interp->collect_garbage();
+		interp->collect_garbage(&env_stack, &eval_stack);
 		interp->stack.pop_back();
+	};
+	auto maybe_collect_periodic = [&]()
+	{
+		++steps_since_gc;
+		if (steps_since_gc >= 256)
+		{
+			steps_since_gc = 0;
+			interp->collect_garbage(&env_stack, &eval_stack, 10);
+		}
 	};
 
 	while (ip < code.size())
@@ -2360,6 +2388,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 					return ok;
 				}
 				ip = static_cast<size_t>(instr.operands[0].s32_value);
+				maybe_collect_periodic();
 				continue;
 			}
 			case UdonInstruction::OpCode::JUMP_IF_FALSE:
@@ -2376,6 +2405,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 						return ok;
 					}
 					ip = static_cast<size_t>(instr.operands[0].s32_value);
+					maybe_collect_periodic();
 					continue;
 				}
 				break;
@@ -2906,6 +2936,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				push_gc_root_and_collect(return_value);
 				return ok;
 		}
+		maybe_collect_periodic();
 		++ip;
 	}
 
@@ -3529,6 +3560,8 @@ void UdonInterpreter::clear()
 	event_handlers.clear();
 	globals.clear();
 	stack.clear();
+	active_env_roots.clear();
+	active_value_roots.clear();
 	for (auto* env : heap_environments)
 		delete env;
 	heap_environments.clear();
@@ -3696,7 +3729,7 @@ std::string UdonInterpreter::dump_instructions() const
 	return ss.str();
 }
 
-static void mark_value(UdonValue& v);
+static void mark_value(const UdonValue& v);
 
 static void mark_environment(UdonEnvironment* env)
 {
@@ -3717,7 +3750,7 @@ static void mark_environment(UdonEnvironment* env)
 	}
 }
 
-static void mark_value(UdonValue& v)
+static void mark_value(const UdonValue& v)
 {
 	if (v.type == UdonValue::Type::Array && v.array_map)
 	{
@@ -3738,8 +3771,18 @@ static void mark_value(UdonValue& v)
 	}
 }
 
-void UdonInterpreter::collect_garbage()
+void UdonInterpreter::collect_garbage(const std::vector<UdonEnvironment*>* env_roots,
+	const std::vector<UdonValue>* value_roots,
+	u32 time_budget_ms)
 {
+	const bool has_budget = time_budget_ms > 0;
+	const auto start = std::chrono::steady_clock::now();
+	const auto deadline = start + std::chrono::milliseconds(time_budget_ms);
+	auto time_up = [&]()
+	{
+		return has_budget && std::chrono::steady_clock::now() >= deadline;
+	};
+
 	for (auto* env : heap_environments)
 		env->marked = false;
 	for (auto* arr : heap_arrays)
@@ -3747,44 +3790,84 @@ void UdonInterpreter::collect_garbage()
 	for (auto* fn : heap_functions)
 		fn->marked = false;
 
+	auto mark_env_roots = [&](const std::vector<UdonEnvironment*>* roots)
+	{
+		if (!roots)
+			return;
+		for (auto* env : *roots)
+			mark_environment(env);
+	};
+
+	auto mark_value_roots = [&](const std::vector<UdonValue>* roots)
+	{
+		if (!roots)
+			return;
+		for (const auto& v : *roots)
+			mark_value(v);
+	};
+
+	for (auto* roots : active_env_roots)
+		mark_env_roots(roots);
 	for (auto& kv : globals)
 		mark_value(kv.second);
 	for (auto& v : stack)
 		mark_value(v);
-
-	for (auto* env : heap_environments)
-		mark_environment(env);
+	for (auto* roots : active_value_roots)
+		mark_value_roots(roots);
+	mark_env_roots(env_roots);
+	mark_value_roots(value_roots);
 
 	std::vector<UdonEnvironment*> live_envs;
 	live_envs.reserve(heap_environments.size());
-	for (auto* env : heap_environments)
+	for (size_t i = 0; i < heap_environments.size(); ++i)
 	{
+		auto* env = heap_environments[i];
 		if (env->marked)
 			live_envs.push_back(env);
 		else
 			delete env;
+		if (time_up())
+		{
+			for (size_t j = i + 1; j < heap_environments.size(); ++j)
+				live_envs.push_back(heap_environments[j]);
+			break;
+		}
 	}
 	heap_environments.swap(live_envs);
 
 	std::vector<UdonValue::ManagedArray*> survivors;
 	survivors.reserve(heap_arrays.size());
-	for (auto* arr : heap_arrays)
+	for (size_t i = 0; i < heap_arrays.size(); ++i)
 	{
+		auto* arr = heap_arrays[i];
 		if (arr->marked)
 			survivors.push_back(arr);
 		else
 			delete arr;
+		if (time_up())
+		{
+			for (size_t j = i + 1; j < heap_arrays.size(); ++j)
+				survivors.push_back(heap_arrays[j]);
+			break;
+		}
 	}
 	heap_arrays.swap(survivors);
 
 	std::vector<UdonValue::ManagedFunction*> live_functions;
 	live_functions.reserve(heap_functions.size());
-	for (auto* fn : heap_functions)
+	for (size_t i = 0; i < heap_functions.size(); ++i)
 	{
+		auto* fn = heap_functions[i];
 		if (fn->marked)
 			live_functions.push_back(fn);
 		else
 			delete fn;
+		if (time_up())
+		{
+			for (size_t j = i + 1; j < heap_functions.size(); ++j)
+				live_functions.push_back(heap_functions[j]);
+			break;
+		}
 	}
 	heap_functions.swap(live_functions);
 }

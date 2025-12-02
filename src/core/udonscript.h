@@ -146,6 +146,8 @@ struct UdonInterpreter
 	std::unordered_map<std::string, std::vector<std::string>> event_handlers; // on:event -> function names
 	std::unordered_set<std::string> declared_globals;
 	std::vector<UdonValue> stack;
+	std::vector<std::vector<UdonEnvironment*>*> active_env_roots;
+	std::vector<std::vector<UdonValue>*> active_value_roots;
 	std::vector<UdonEnvironment*> heap_environments;
 	std::vector<UdonValue::ManagedArray*> heap_arrays;
 	std::vector<UdonValue::ManagedFunction*> heap_functions;
@@ -167,7 +169,9 @@ struct UdonInterpreter
 	CodeLocation run_eventhandlers(std::string on_event_name);
 	std::string dump_instructions() const;
 	void clear();
-	void collect_garbage();
+	void collect_garbage(const std::vector<UdonEnvironment*>* env_roots = nullptr,
+		const std::vector<UdonValue>* value_roots = nullptr,
+		u32 time_budget_ms = 0);
 	void register_function(const std::string& name,
 		const std::string& arg_signature,
 		const std::string& return_type,

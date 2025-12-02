@@ -1,0 +1,77 @@
+// Stress GC and ensure unreachable data gets reclaimed.
+
+function make_temp_store(count) {
+	var holder = array();
+	var i = 0;
+	while (i < count) {
+		var tmp = array();
+		tmp["i"] = i;
+		holder[to_string(i)] = tmp;
+		i = i + 1;
+	}
+	return(holder);
+}
+
+function make_closures(count) {
+	var holder = array();
+	var i = 0;
+	while (i < count) {
+		var base = i;
+		var fn = function() {
+			return(base);
+		};
+		holder[to_string(i)] = fn;
+		i = i + 1;
+	}
+	return(holder);
+}
+
+function run_gc_scenario() {
+	__gc_collect();
+	var before = __gc_stats();
+	var before_arrays = before:arrays;
+	before = 0;
+	__gc_collect();
+
+	var temps = make_temp_store(50);
+	var closures = make_closures(12);
+
+	__gc_collect();
+	var mid = __gc_stats();
+	var mid_arrays = mid:arrays;
+	var mid_envs = mid:envs;
+	var mid_functions = mid:functions;
+	mid = 0;
+
+	return({
+		before_arrays: before_arrays,
+		mid_arrays: mid_arrays,
+		mid_envs: mid_envs,
+		mid_functions: mid_functions
+	});
+}
+
+function main() {
+	var stats = run_gc_scenario();
+
+	__gc_collect();
+	var after = __gc_stats();
+
+	var arrays_diff = stats:mid_arrays - after:arrays;
+	var funcs_diff = stats:mid_functions - after:functions;
+	var envs_diff = stats:mid_envs - after:envs;
+
+	if (arrays_diff >= 50 && funcs_diff >= 12 && envs_diff >= 1) {
+		print("gc_reclaimed_ok");
+	} else {
+		print("gc_reclaimed_fail", arrays_diff, funcs_diff, envs_diff);
+	}
+
+	print("before_arrays", stats:before_arrays);
+	print("mid_arrays", stats:mid_arrays);
+	print("after_arrays", after:arrays);
+	print("mid_envs", stats:mid_envs);
+	print("after_envs", after:envs);
+	print("mid_functions", stats:mid_functions);
+	print("after_functions", after:functions);
+}
