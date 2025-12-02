@@ -463,10 +463,15 @@ namespace udon_script_builtins
 			});
 		};
 
-		interp->register_function("array", "", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>&, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation&)
+		interp->register_function("array", "values:any...", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation&)
 		{
 			out.type = UdonValue::Type::Array;
 			out.array_map = interp->allocate_array();
+			int idx = 0;
+			for (const auto& v : positional)
+			{
+				array_set(out, std::to_string(idx++), v);
+			}
 			return true;
 		});
 

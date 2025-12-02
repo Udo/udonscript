@@ -134,6 +134,14 @@ While UdonScript is dynamically typed, you can optionally specify types for docu
 var count: s32 = 0
 var ratio: f32 = 0.5
 var message: string = "Hello"
+
+Multiple variables can be declared and assigned from a multi-value expression (commas return arrays):
+
+```javascript
+var x, y = pair(5)   // pair returns (5, 6)
+var _, only = pair(3) // '_' ignores a slot
+x, y = pair(10)      // destructuring assignment
+```
 ```
 
 ### Global Variables
@@ -385,11 +393,15 @@ greet(lastName="Smith", firstName="John", title="Dr.")
 
 ### Return Values
 
-Use `return(expr)` to return a value from a function:
+Use `return(expr)` to return a value from a function. Comma-separated expressions return an array that can be destructured:
 
 ```javascript
 function square(x) {
     return(x * x)
+}
+
+function pair(x) {
+    return(x, x + 1)
 }
 
 var result = square(5)  // result = 25

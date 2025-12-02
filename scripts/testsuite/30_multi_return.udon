@@ -1,0 +1,22 @@
+// Test: multiple return values and destructuring assignments
+
+function pair(a) {
+    return(a, a + 1)
+}
+
+function main() {
+    var x, y = pair(5)
+    print("xy:", x, y)
+
+    var _, z = pair(3)
+    print("z:", z)
+
+    var a = 0
+    var b = 0
+    a, b = pair(7)
+    print("ab:", a, b)
+
+    if (var _, first = pair(1)) {
+        print("if_first:", first)
+    }
+}

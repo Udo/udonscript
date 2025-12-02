@@ -291,6 +291,7 @@ interp.register_function("myFunc", "x:number", "number",
 When errors occur, check:
 - Line and column numbers in error message
 - Semicolons are ignored except inside `for (...)` headers
+- `return(a, b)` yields an array; destructure with `var x, y = fn()`, use `_` to ignore slots
 - Matching braces `{}`
 - Function names and parameters
 - Type mismatches in operations
