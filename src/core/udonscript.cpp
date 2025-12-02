@@ -1271,6 +1271,38 @@ namespace
 
 			if (peek().type == Token::Type::Identifier && tokens.size() > current + 2)
 			{
+				size_t la = current;
+				std::string base_name = tokens[la].text;
+				++la;
+				std::vector<std::string> prop_chain;
+				while (la + 1 < tokens.size() && tokens[la].type == Token::Type::Symbol && tokens[la].text == ":" &&
+					   (tokens[la + 1].type == Token::Type::Identifier || tokens[la + 1].type == Token::Type::String || tokens[la + 1].type == Token::Type::Number))
+				{
+					prop_chain.push_back(tokens[la + 1].text);
+					la += 2;
+				}
+				if (!prop_chain.empty() && la < tokens.size() && tokens[la].type == Token::Type::Symbol && tokens[la].text == "=")
+				{
+					advance(); // base identifier
+					ResolvedVariable base_ref;
+					if (!resolve_variable(ctx, base_name, base_ref))
+						return !make_error(previous(), "Undeclared variable '" + base_name + "'").has_error;
+					for (size_t i = 0; i < prop_chain.size(); ++i)
+					{
+						advance(); // ':'
+						advance(); // prop token
+					}
+					advance(); // '='
+					emit_load_var(body, base_ref);
+					for (size_t i = 0; i + 1 < prop_chain.size(); ++i)
+						emit(body, UdonInstruction::OpCode::GET_PROP, { make_string(prop_chain[i]) });
+					if (!parse_expression(body, ctx))
+						return false;
+					emit(body, UdonInstruction::OpCode::STORE_PROP, { make_string(prop_chain.back()) });
+					produced_value = false;
+					return true;
+				}
+
 				size_t lookahead = current + 1;
 				if (tokens[lookahead].type == Token::Type::Symbol)
 				{
@@ -1747,14 +1779,7 @@ namespace
 					return false;
 
 				std::vector<Value> ops;
-				std::string callee = "array";
-				if (count == 2)
-					callee = "Vector2";
-				else if (count == 3)
-					callee = "Vector3";
-				else if (count == 4)
-					callee = "Vector4";
-				ops.push_back(make_string(callee));
+				ops.push_back(make_string("array"));
 				ops.push_back(make_int(count));
 				for (int i = 0; i < count; ++i)
 					ops.push_back(make_string(""));
@@ -1799,36 +1824,49 @@ namespace
 			if (match_symbol("{"))
 			{
 				std::vector<std::string> keys;
-				std::vector<bool> values_parsed;
+				size_t auto_index = 0;
 
 				if (!match_symbol("}"))
 				{
 					do
 					{
+						bool has_explicit_key = false;
 						std::string key;
-						if (peek().type == Token::Type::Identifier)
+						Token key_token = peek();
+						if (key_token.type == Token::Type::Identifier || key_token.type == Token::Type::String || key_token.type == Token::Type::Number)
 						{
 							key = advance().text;
-						}
-						else if (peek().type == Token::Type::String)
-						{
-							key = advance().text;
-						}
-						else if (peek().type == Token::Type::Number)
-						{
-							key = advance().text;
+							if (match_symbol(":"))
+							{
+								has_explicit_key = true;
+							}
 						}
 						else
 						{
 							return !make_error(peek(), "Expected property name").has_error;
 						}
 
-						if (!expect_symbol(":", "Expected ':' after property name"))
-							return false;
+						if (!has_explicit_key)
+						{
+							key = std::to_string(auto_index++);
+							current = current - 1;
+						}
 
 						if (!parse_expression(body, ctx))
 							return false;
 
+						if (has_explicit_key && key_token.type == Token::Type::Number)
+						{
+							try
+							{
+								int key_num = std::stoi(key);
+								if (key_num + 1 > static_cast<int>(auto_index))
+									auto_index = static_cast<size_t>(key_num + 1);
+							}
+							catch (...)
+							{
+							}
+						}
 						keys.push_back(key);
 
 					} while (match_symbol(","));

@@ -1,0 +1,16 @@
+len_a: 6
+a0: bar
+a1: none
+a2: two
+a3: baz
+a9: nine
+a10: tail
+afoo: 1
+a_newkey: value
+b_inner0: alpha
+b_inner_key: value
+b_list1: 2
+b_list_len: 4
+b_list3: 4
+b_inner_key_updated: updated
+missing_key: none

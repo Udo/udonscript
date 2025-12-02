@@ -1,0 +1,49 @@
+// Comprehensive array/map behavior tests
+function main() {
+	// literal with implicit and explicit keys
+	var a = {
+		"foo": 1,
+		"bar",
+		2: "two",
+		"baz",
+		9: "nine",
+		"tail"
+	}
+	print("len_a:", len(a))
+	print("a0:", a:0)
+	print("a1:", a:1)
+	print("a2:", a:2)
+	print("a3:", a:3)
+	print("a9:", a:9)
+	print("a10:", a:10)
+	print("afoo:", a:foo)
+
+	// array_set / array_get via colon
+	a:newkey = "value"
+	print("a_newkey:", a:newkey)
+
+	// nested literals and updates
+	var b = {
+		inner: {
+			"alpha",
+			"beta",
+			key: "value"
+		},
+		list: [1, 2, 3]
+	}
+	print("b_inner0:", b:inner:0)
+	print("b_inner_key:", b:inner:key)
+	print("b_list1:", b:list[1])
+
+	// push and pop
+	push(b:list, 4)
+	print("b_list_len:", len(b:list))
+	print("b_list3:", b:list[3])
+
+	// overwrite and read back
+	b:inner:key = "updated"
+	print("b_inner_key_updated:", b:inner:key)
+
+	// ensure missing keys return none
+	print("missing_key:", b:inner:missing)
+}
