@@ -1,0 +1,5 @@
+function main() {
+    var scores = {}
+    scores["str"] = 5
+    print("Score: " + to_string(scores["str"]))
+}

@@ -1,0 +1,11 @@
+function roll() {
+    return(5)
+}
+
+function main() {
+    var scores = {}
+    scores["str"] = roll()
+    print("First score: " + to_string(scores["str"]))
+    scores["dex"] = roll()
+    print("Second score: " + to_string(scores["dex"]))
+}

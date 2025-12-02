@@ -96,6 +96,12 @@ struct UdonInstruction
 		PUSH_LITERAL,
 		LOAD_VAR,
 		STORE_VAR,
+		LOAD_LOCAL,
+		STORE_LOCAL,
+		LOAD_GLOBAL,
+		STORE_GLOBAL,
+		ENTER_SCOPE,
+		EXIT_SCOPE,
 		ADD,
 		SUB,
 		MUL,
@@ -126,19 +132,12 @@ struct UdonInstruction
 	u32 column = 0;
 };
 
-/* // Example code, typed, with optionally named arguments 
-
-function add(a: s32, b: s32, c: s32) -> s32 { // type names match engine typedefs
-    return a + b * c;
-}
-
-function main() {
-    var result: s32 = add(5, c=10, b=2); // missing args default to 0
-    scene.root.transform.translate_by(Vector3(0.0, result, 0.0)); // implicit conversions
-    print("Result: " + result);
-}
-
-*/
+struct UdonEnvironment
+{
+	std::vector<UdonValue> slots;
+	UdonEnvironment* parent = nullptr;
+	bool marked = false;
+};
 
 struct UdonInterpreter
 {
@@ -146,10 +145,14 @@ struct UdonInterpreter
 	std::unordered_map<std::string, std::vector<UdonInstruction>> instructions; // by function name
 	std::unordered_map<std::string, std::vector<std::string>> function_params; // parameter names per function
 	std::unordered_map<std::string, std::string> function_variadic; // variadic param name per function (optional)
+	std::unordered_map<std::string, std::vector<s32>> function_param_slots; // slot index per parameter
+	std::unordered_map<std::string, size_t> function_scope_sizes; // root scope slot counts
+	std::unordered_map<std::string, s32> function_variadic_slot; // slot index for variadic parameter if present
 	std::unordered_map<std::string, UdonBuiltinEntry> builtins;
 	std::unordered_map<std::string, std::vector<std::string>> event_handlers; // on:event -> function names
 	std::unordered_set<std::string> declared_globals;
 	std::vector<UdonValue> stack;
+	std::vector<UdonEnvironment*> heap_environments;
 	std::vector<UdonValue::ManagedArray*> heap_arrays;
 	std::vector<UdonValue::ManagedFunction*> heap_functions;
 	std::vector<void*> dl_handles;
@@ -175,6 +178,7 @@ struct UdonInterpreter
 		const std::string& arg_signature,
 		const std::string& return_type,
 		UdonBuiltinFunction fn);
+	UdonEnvironment* allocate_environment(size_t slot_count, UdonEnvironment* parent);
 	UdonValue::ManagedArray* allocate_array();
 	UdonValue::ManagedFunction* allocate_function();
 	s32 register_dl_handle(void* handle);
@@ -193,12 +197,15 @@ struct UdonValue::ManagedArray
 struct UdonValue::ManagedFunction
 {
 	std::string function_name;
-	std::unordered_map<std::string, UdonValue> captured_locals;
+	UdonEnvironment* captured_env = nullptr;
 	std::string handler; // optional builtin handler tag
 	std::string template_body; // optional payload for template handlers
 	s32 handler_data = -1; // optional numeric payload for handlers
 	std::vector<UdonInstruction>* code_ptr = nullptr;
 	std::vector<std::string>* param_ptr = nullptr;
+	std::vector<s32> param_slots;
+	size_t root_scope_size = 0;
+	s32 variadic_slot = -1;
 	std::string variadic_param;
 	bool marked = false;
 };

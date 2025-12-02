@@ -1,0 +1,44 @@
+function roll_4d6_drop_lowest() {
+    print("roll_4d6: start")
+    var rolls = {}
+    for (var i = 0; i < 4; i = i + 1) {
+        rolls[i] = 1 + floor(rand() * 6)
+    }
+    print("roll_4d6: first loop done")
+    var low = rolls[0]
+    for (var i = 1; i < 4; i = i + 1) {
+        if (rolls[i] < low) low = rolls[i]
+    }
+    print("roll_4d6: found low=" + to_string(low))
+    var sum = 0
+    for (var i = 0; i < 4; i = i + 1) {
+        sum = sum + rolls[i]
+    }
+    print("roll_4d6: sum=" + to_string(sum))
+    return(sum - low)
+}
+
+function build_character() {
+    print("Building character...")
+    var abilities = {
+        0: "str",
+        1: "dex",
+        2: "con",
+        3: "int",
+        4: "wis",
+        5: "cha"
+    }
+    var scores = {}
+    for (var i = 0; i < len(abilities); i = i + 1) {
+        print("Rolling for ability " + to_string(i))
+        scores[abilities[i]] = roll_4d6_drop_lowest()
+        print("  rolled " + abilities[i] + ": " + to_string(scores[abilities[i]]))
+    }
+    print("Done building")
+    return(scores)
+}
+
+function main() {
+    var c = build_character()
+    print("Character: " + to_string(c))
+}

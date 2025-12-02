@@ -1,0 +1,121 @@
+// Demo: Random D&D 5e level 1 character (core-ish tables)
+
+function roll_4d6_drop_lowest() {
+    var rolls = {}
+    for (var i = 0; i < 4; i = i + 1) {
+        rolls[i] = 1 + floor(rand() * 6)
+    }
+    // find lowest
+    var low = rolls[0]
+    for (var i = 1; i < 4; i = i + 1) {
+        if (rolls[i] < low) low = rolls[i]
+    }
+    var sum = 0
+    for (var i = 0; i < 4; i = i + 1) {
+        sum = sum + rolls[i]
+    }
+    return(sum - low)
+}
+
+function mod(score) {
+    return(to_s32(floor((score - 10) / 2)))
+}
+
+function pick(list) {
+    return(list[floor(rand() * len(list))])
+}
+
+function build_character() {
+    print("Rolling scores...")
+    var races = {
+        0: {name: "Human", ability: {all: 1}},
+        1: {name: "Elf", ability: {dex: 2}},
+        2: {name: "Dwarf", ability: {con: 2}},
+        3: {name: "Halfling", ability: {dex: 2}},
+        4: {name: "Gnome", ability: {int: 2}}
+    }
+    var classes = {
+        0: {name: "Fighter", hit_die: 10, primary: "str"},
+        1: {name: "Wizard", hit_die: 6, primary: "int"},
+        2: {name: "Rogue", hit_die: 8, primary: "dex"},
+        3: {name: "Cleric", hit_die: 8, primary: "wis"},
+        4: {name: "Ranger", hit_die: 10, primary: "dex"}
+    }
+    var backgrounds = {
+        0: "Acolyte",
+        1: "Criminal",
+        2: "Folk Hero",
+        3: "Noble",
+        4: "Sage",
+        5: "Soldier"
+    }
+    var abilities = {
+        0: "str",
+        1: "dex",
+        2: "con",
+        3: "int",
+        4: "wis",
+        5: "cha"
+    }
+    var scores = {}
+    for (var i = 0; i < len(abilities); i = i + 1) {
+        scores[abilities[i]] = roll_4d6_drop_lowest()
+        print("  rolled " + abilities[i] + ": " + to_string(scores[abilities[i]]))
+    }
+
+    print("Picking race/class... races=" + to_string(len(races)) + " classes=" + to_string(len(classes)))
+    var race = pick(races)
+    var cls = pick(classes)
+    // apply racial bonuses
+    if (race:ability:all != none) {
+        for (var i = 0; i < len(abilities); i = i + 1) {
+            var k = abilities[i]
+            scores[k] = scores[k] + race:ability:all
+        }
+    } else {
+        var race_keys = keys(race:ability)
+        for (var i = 0; i < len(race_keys); i = i + 1) {
+            var rk = race_keys[i]
+            scores[rk] = scores[rk] + race:ability[rk]
+        }
+    }
+
+    var hp = cls:hit_die + mod(scores["con"])
+    if (hp < 1) hp = 1
+
+    var character = {
+        race: race:name,
+        class: cls:name,
+        background: pick(backgrounds),
+        scores: scores,
+        modifiers: {
+            str: mod(scores["str"]),
+            dex: mod(scores["dex"]),
+            con: mod(scores["con"]),
+            int: mod(scores["int"]),
+            wis: mod(scores["wis"]),
+            cha: mod(scores["cha"])
+        },
+        hp: hp,
+        primary: cls:primary
+    }
+    print("Built character")
+    return(character)
+}
+
+function main() {
+    print("=== Random D&D 5e Level 1 Character ===")
+    var c = build_character()
+    print("Generated.")
+    print("Race: " + c:race)
+    print("Class: " + c:class)
+    print("Background: " + c:background)
+    print("HP: " + to_string(c:hp))
+    print("Ability scores:")
+    var ks = keys(c:scores)
+    for (var i = 0; i < len(ks); i = i + 1) {
+        var k = ks[i]
+        print("  " + k + ": " + to_string(c:scores[k]) + " (" + to_string(c:modifiers[k]) + ")")
+    }
+    print("Primary stat: " + c:primary)
+}

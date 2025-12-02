@@ -1,0 +1,94 @@
+// Extensive scoping semantics check (lexical like JavaScript)
+var top = 1;
+var block_var = 99;
+var f_block = function() { return(block_var); };
+
+function read_global() {
+	return(top);
+}
+
+function outer() {
+	var x = 5;
+	var inner = function() { return(x); };
+	x = 6;
+	return(inner);
+}
+
+function make_loop_funcs() {
+	var funcs = array();
+	for (var i = 0; i < 3; i = i + 1) {
+		var fn = function() { return(i); };
+		push(funcs, fn);
+	}
+	return(funcs);
+}
+
+function main() {
+	print("global_read:", top)
+	var top = 10
+	print("shadow:", top)
+	if (true) {
+		var top = 30
+		print("block_shadow:", top)
+	}
+	print("after_block:", top)
+
+	// deeply nested blocks with shadowing
+	if (true) {
+		var a = "outerA"
+		if (true) {
+			var a = "innerA"
+			if (true) {
+				var a = "deepA"
+				print("deep:", a)
+			}
+			print("mid:", a)
+		}
+		print("shallow:", a)
+	}
+
+	var c = outer()
+	print("closure_outer:", c())
+
+	var funcs = make_loop_funcs()
+	var idx = 0
+	while (idx < len(funcs)) {
+		var f = array_get(funcs, idx)
+		print("loop_closure:", f())
+		idx = idx + 1
+	}
+
+	if (var cond = 10) {
+		print("if_inline:", cond)
+	}
+
+	while (var once = false) {
+		print("unreachable:", once)
+	}
+
+	var z = "globalZ"
+	for (var k = 0; k < 2; k = k + 1) {
+		var z = "loop" + to_string(k)
+		if (k == 1) {
+			var z = "inner" + to_string(k)
+		}
+		print("loop_z:", z)
+		while (false) {
+			var z = "unreachable"
+		}
+	}
+	print("after_loop_z:", z)
+
+	var make_shadow = function() {
+		var v = "global"
+		if (true) {
+			var v = "block"
+			return(function() { return(v) })
+		}
+	}
+	var shadow_fn = make_shadow()
+
+	print("global_func:", read_global())
+	print("block_closure:", f_block())
+	print("block_fn:", shadow_fn())
+}
