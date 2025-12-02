@@ -10,4 +10,12 @@ function main() {
 	print("split:", split("a,b,c", ","));
 	print("join:", join({0: "a", 1: "b", 2: "c"}, ","));
 	print("glyphs:", glyphs("héllo"));
+	print("contains_str:", contains("foo bar", "bar"));
+	print("uri_enc:", uri_encode("a+b"));
+	print("uri_dec:", uri_decode(uri_encode("a+b")));
+	print("b64:", base64_encode("a"));
+	print("b64_dec:", base64_decode(base64_encode("a")));
+	print("find2:", find("foobarbar", "bar", 3));
+	print("starts:", starts_with("hello", "he"));
+	print("ends:", ends_with("hello", "lo"));
 }

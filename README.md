@@ -34,6 +34,3 @@ function main() {
     print("Hello, World!")
 }
 ```
-
-### Changelog
-- removed some AI generated garbage from the documentation

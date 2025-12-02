@@ -562,6 +562,89 @@ shell("cat", safe)  // Safely passes filename to shell
 
 ### `to_htmlsafe(s)`
 
+### `to_json(value)`
+
+Serializes a value to a JSON string (objects as maps, arrays by numeric keys).
+
+**Parameters:**
+- `value:any` - Value to encode
+
+**Returns:** `string` - JSON string
+
+### `parse_json(s)`
+
+Parses a JSON string into arrays/maps/values.
+
+**Parameters:**
+- `s:string` - JSON input
+
+**Returns:** `any` - Parsed value
+
+### `contains(hay, needle)`
+
+Checks membership in string or array.
+
+**Returns:** `bool`
+
+### `replace(s, old, new, [count])`
+
+Replace occurrences in a string.
+
+**Returns:** `string`
+
+### `starts_with(s, prefix)` / `ends_with(s, suffix)`
+
+Prefix/suffix checks.
+
+**Returns:** `bool`
+
+### `find(s, needle, [start])`
+
+Find substring, returns index or -1.
+
+**Returns:** `s32`
+
+### `ord(s)` / `chr(code)`
+
+ASCII code of first char / single-character string from code.
+
+### `glyphs(s)`
+
+Splits string into UTF-8 glyphs, returns array of substrings.
+
+### `split(s, delim)` / `join(arr, delim)`
+
+String split and array join helpers.
+
+### `range(stop)` / `range(start, stop, [step])`
+
+Generates array of integers.
+
+### `push(arr, value)` / `pop(arr, [key])`
+
+Array push/pop (pop returns `none` if not found).
+
+### `rand()`
+
+Random float in [0,1).
+
+### `time()`
+
+Current epoch seconds.
+
+### `uri_encode(s)` / `uri_decode(s)`
+
+Percent-encode/decode helpers (space encodes as `+`).
+
+### `base64_encode(s)` / `base64_decode(s)`
+
+Base64 helpers.
+
+### `parse_formdata(s)`
+
+Parses URL query strings or form bodies (`key=value&key2=value2`) into a map (array).
+
+
 Escapes HTML special characters for safe use in HTML.
 
 **Parameters:**

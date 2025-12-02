@@ -6,3 +6,11 @@ substr: ell
 split: [2: c, 1: b, 0: a]
 join: a,b,c
 glyphs: [4: o, 2: l, 3: l, 1: é, 0: h]
+contains_str: true
+uri_enc: a%2Bb
+uri_dec: a+b
+b64: YQ==
+b64_dec: a
+find2: 3
+starts: true
+ends: true

@@ -9,6 +9,11 @@
 #include <limits>
 #include <cstdio>
 #include <sys/stat.h>
+#include <random>
+#include <chrono>
+#include <iomanip>
+#include <sstream>
+#include <iterator>
 
 using namespace udon_script_helpers;
 
@@ -59,6 +64,369 @@ static std::string trim_string(const std::string& s, bool left, bool right)
 	}
 	return s.substr(start, end - start);
 }
+
+static std::string json_escape(const std::string& s)
+{
+	std::string out;
+	for (char c : s)
+	{
+		switch (c)
+		{
+			case '"':
+				out += "\\\"";
+				break;
+			case '\\':
+				out += "\\\\";
+				break;
+			case '\n':
+				out += "\\n";
+				break;
+			case '\r':
+				out += "\\r";
+				break;
+			case '\t':
+				out += "\\t";
+				break;
+			default:
+				out.push_back(c);
+				break;
+		}
+	}
+	return out;
+}
+
+static std::string to_json(const UdonValue& v)
+{
+	switch (v.type)
+	{
+		case UdonValue::Type::String:
+			return "\"" + json_escape(v.string_value) + "\"";
+		case UdonValue::Type::S32:
+			return std::to_string(v.s32_value);
+		case UdonValue::Type::F32:
+		{
+			std::ostringstream ss;
+			ss << v.f32_value;
+			return ss.str();
+		}
+		case UdonValue::Type::Bool:
+			return v.s32_value ? "true" : "false";
+		case UdonValue::Type::Array:
+		{
+			if (!v.array_map)
+				return "null";
+			std::ostringstream ss;
+			ss << "{";
+			bool first = true;
+			for (const auto& kv : v.array_map->values)
+			{
+				if (!first)
+					ss << ",";
+				first = false;
+				ss << "\"" << json_escape(kv.first) << "\":" << to_json(kv.second);
+			}
+			ss << "}";
+			return ss.str();
+		}
+		case UdonValue::Type::None:
+		default:
+			return "null";
+	}
+}
+
+static std::string url_encode(const std::string& s)
+{
+	std::ostringstream escaped;
+	escaped.fill('0');
+	escaped << std::hex;
+	for (unsigned char c : s)
+	{
+		if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~')
+			escaped << c;
+		else if (c == ' ')
+			escaped << '+';
+		else
+			escaped << '%' << std::uppercase << std::setw(2) << int(c) << std::nouppercase;
+	}
+	return escaped.str();
+}
+
+static std::string url_decode(const std::string& s)
+{
+	std::string out;
+	for (size_t i = 0; i < s.size(); ++i)
+	{
+		if (s[i] == '+')
+			out.push_back(' ');
+		else if (s[i] == '%' && i + 2 < s.size())
+		{
+			std::string hex = s.substr(i + 1, 2);
+			char ch = static_cast<char>(std::strtol(hex.c_str(), nullptr, 16));
+			out.push_back(ch);
+			i += 2;
+		}
+		else
+			out.push_back(s[i]);
+	}
+	return out;
+}
+
+static const std::string b64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+static std::string base64_encode(const std::string& in)
+{
+	std::string out;
+	int val = 0;
+	int valb = -6;
+	for (unsigned char c : in)
+	{
+		val = (val << 8) + c;
+		valb += 8;
+		while (valb >= 0)
+		{
+			out.push_back(b64_chars[(val >> valb) & 0x3F]);
+			valb -= 6;
+		}
+	}
+	if (valb > -6)
+		out.push_back(b64_chars[((val << 8) >> (valb + 8)) & 0x3F]);
+	while (out.size() % 4)
+		out.push_back('=');
+	return out;
+}
+
+static std::string base64_decode(const std::string& in)
+{
+	std::vector<int> T(256, -1);
+	for (int i = 0; i < 64; i++)
+		T[b64_chars[i]] = i;
+	std::string out;
+	int val = 0;
+	int valb = -8;
+	for (unsigned char c : in)
+	{
+		if (T[c] == -1)
+			break;
+		val = (val << 6) + T[c];
+		valb += 6;
+		if (valb >= 0)
+		{
+			out.push_back(char((val >> valb) & 0xFF));
+			valb -= 8;
+		}
+	}
+	return out;
+}
+
+static UdonValue parse_form_data(const std::string& s, UdonInterpreter* interp)
+{
+	UdonValue out;
+	out.type = UdonValue::Type::Array;
+	out.array_map = interp->allocate_array();
+	size_t pos = 0;
+	while (pos < s.size())
+	{
+		size_t amp = s.find('&', pos);
+		std::string pair = (amp == std::string::npos) ? s.substr(pos) : s.substr(pos, amp - pos);
+		size_t eq = pair.find('=');
+		std::string key = (eq == std::string::npos) ? pair : pair.substr(0, eq);
+		std::string val = (eq == std::string::npos) ? "" : pair.substr(eq + 1);
+		key = url_decode(key);
+		val = url_decode(val);
+		array_set(out, key, make_string(val));
+		if (amp == std::string::npos)
+			break;
+		pos = amp + 1;
+	}
+	return out;
+}
+
+struct JsonParser
+{
+	const std::string& s;
+	size_t pos = 0;
+
+	JsonParser(const std::string& str) : s(str) {}
+
+	void skip_ws()
+	{
+		while (pos < s.size() && std::isspace(static_cast<unsigned char>(s[pos])))
+			++pos;
+	}
+
+	bool parse_value(UdonValue& out)
+	{
+		skip_ws();
+		if (pos >= s.size())
+			return false;
+		char c = s[pos];
+		if (c == '"')
+			return parse_string(out);
+		if (c == '{')
+			return parse_object(out);
+		if (c == '[')
+			return parse_array(out);
+		if (std::isdigit(static_cast<unsigned char>(c)) || c == '-' || c == '+')
+			return parse_number(out);
+		if (s.compare(pos, 4, "true") == 0)
+		{
+			pos += 4;
+			out = make_bool(true);
+			return true;
+		}
+		if (s.compare(pos, 5, "false") == 0)
+		{
+			pos += 5;
+			out = make_bool(false);
+			return true;
+		}
+		if (s.compare(pos, 4, "null") == 0)
+		{
+			pos += 4;
+			out = make_none();
+			return true;
+		}
+		return false;
+	}
+
+	bool parse_string(UdonValue& out)
+	{
+		if (s[pos] != '"')
+			return false;
+		++pos;
+		std::string val;
+		while (pos < s.size())
+		{
+			char c = s[pos++];
+			if (c == '"')
+				break;
+			if (c == '\\' && pos < s.size())
+			{
+				char esc = s[pos++];
+				switch (esc)
+				{
+					case 'n':
+						val.push_back('\n');
+						break;
+					case 'r':
+						val.push_back('\r');
+						break;
+					case 't':
+						val.push_back('\t');
+						break;
+					case '\\':
+						val.push_back('\\');
+						break;
+					case '"':
+						val.push_back('"');
+						break;
+					default:
+						val.push_back(esc);
+						break;
+				}
+			}
+			else
+			{
+				val.push_back(c);
+			}
+		}
+		out = make_string(val);
+		return true;
+	}
+
+	bool parse_number(UdonValue& out)
+	{
+		size_t start = pos;
+		if (s[pos] == '+' || s[pos] == '-')
+			++pos;
+		while (pos < s.size() && (std::isdigit(static_cast<unsigned char>(s[pos])) || s[pos] == '.'))
+			++pos;
+		std::string num = s.substr(start, pos - start);
+		double d = std::atof(num.c_str());
+		if (num.find('.') == std::string::npos)
+			out = make_int(static_cast<s32>(d));
+		else
+			out = make_float(static_cast<f32>(d));
+		return true;
+	}
+
+	bool parse_array(UdonValue& out)
+	{
+		if (s[pos] != '[')
+			return false;
+		++pos;
+		out = make_array();
+		int idx = 0;
+		skip_ws();
+		if (pos < s.size() && s[pos] == ']')
+		{
+			++pos;
+			return true;
+		}
+		while (pos < s.size())
+		{
+			UdonValue val;
+			if (!parse_value(val))
+				return false;
+			array_set(out, std::to_string(idx++), val);
+			skip_ws();
+			if (pos < s.size() && s[pos] == ',')
+			{
+				++pos;
+				continue;
+			}
+			if (pos < s.size() && s[pos] == ']')
+			{
+				++pos;
+				return true;
+			}
+			return false;
+		}
+		return false;
+	}
+
+	bool parse_object(UdonValue& out)
+	{
+		if (s[pos] != '{')
+			return false;
+		++pos;
+		out = make_array();
+		skip_ws();
+		if (pos < s.size() && s[pos] == '}')
+		{
+			++pos;
+			return true;
+		}
+		while (pos < s.size())
+		{
+			UdonValue key;
+			if (!parse_string(key))
+				return false;
+			skip_ws();
+			if (pos >= s.size() || s[pos] != ':')
+				return false;
+			++pos;
+			UdonValue val;
+			if (!parse_value(val))
+				return false;
+			array_set(out, key.string_value, val);
+			skip_ws();
+			if (pos < s.size() && s[pos] == ',')
+			{
+				++pos;
+				skip_ws();
+				continue;
+			}
+			if (pos < s.size() && s[pos] == '}')
+			{
+				++pos;
+				return true;
+			}
+			return false;
+		}
+		return false;
+	}
+};
 
 namespace udon_script_builtins
 {
@@ -733,6 +1101,144 @@ namespace udon_script_builtins
 			return true;
 		});
 
+		interp->register_function("replace", "s:string, old:string, new:string, count:s32", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+			if (positional.size() < 3 || positional.size() > 4)
+			{
+				err.has_error = true;
+				err.opt_error_message = "replace expects (string, old, new, [count])";
+				return true;
+			}
+			std::string s = value_to_string(positional[0]);
+			std::string from = value_to_string(positional[1]);
+			std::string to = value_to_string(positional[2]);
+			int count = -1;
+			if (positional.size() == 4)
+				count = static_cast<int>(as_number(positional[3]));
+			if (from.empty())
+			{
+				out = make_string(s);
+				return true;
+			}
+			size_t pos = 0;
+			int replaced = 0;
+			while ((count < 0 || replaced < count))
+			{
+				pos = s.find(from, pos);
+				if (pos == std::string::npos)
+					break;
+				s.replace(pos, from.size(), to);
+				pos += to.size();
+				++replaced;
+			}
+			out = make_string(s);
+			return true;
+		});
+
+		interp->register_function("starts_with", "s:string, prefix:string", "bool", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+			if (positional.size() != 2)
+			{
+				err.has_error = true;
+				err.opt_error_message = "starts_with expects (string, prefix)";
+				return true;
+			}
+			std::string s = value_to_string(positional[0]);
+			std::string pref = value_to_string(positional[1]);
+			bool res = s.size() >= pref.size() && s.compare(0, pref.size(), pref) == 0;
+			out = make_bool(res);
+			return true;
+		});
+
+		interp->register_function("ends_with", "s:string, suffix:string", "bool", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+			if (positional.size() != 2)
+			{
+				err.has_error = true;
+				err.opt_error_message = "ends_with expects (string, suffix)";
+				return true;
+			}
+			std::string s = value_to_string(positional[0]);
+			std::string suf = value_to_string(positional[1]);
+			bool res = s.size() >= suf.size() && s.compare(s.size() - suf.size(), suf.size(), suf) == 0;
+			out = make_bool(res);
+			return true;
+		});
+
+		interp->register_function("find", "s:string, needle:string, start:s32", "s32", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+			if (positional.size() < 2 || positional.size() > 3)
+			{
+				err.has_error = true;
+				err.opt_error_message = "find expects (string, needle, [start])";
+				return true;
+			}
+			std::string s = value_to_string(positional[0]);
+			std::string needle = value_to_string(positional[1]);
+			size_t start = 0;
+			if (positional.size() == 3)
+			{
+				int st = static_cast<int>(as_number(positional[2]));
+				if (st > 0)
+					start = static_cast<size_t>(st);
+			}
+			size_t pos = s.find(needle, start);
+			if (pos == std::string::npos)
+				out = make_int(-1);
+			else
+				out = make_int(static_cast<s32>(pos));
+			return true;
+		});
+
+		interp->register_function("ord", "s:string", "s32", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+			if (positional.size() != 1)
+			{
+				err.has_error = true;
+				err.opt_error_message = "ord expects (string)";
+				return true;
+			}
+			std::string s = value_to_string(positional[0]);
+			if (s.empty())
+			{
+				out = make_int(0);
+				return true;
+			}
+			out = make_int(static_cast<s32>(static_cast<unsigned char>(s[0])));
+			return true;
+		});
+
+		interp->register_function("contains", "hay:any, needle:any", "bool", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+			if (positional.size() != 2)
+			{
+				err.has_error = true;
+				err.opt_error_message = "contains expects (haystack, needle)";
+				return true;
+			}
+			const auto& hay = positional[0];
+			const auto& needle = positional[1];
+			bool found = false;
+			if (hay.type == UdonValue::Type::String)
+			{
+				found = value_to_string(hay).find(value_to_string(needle)) != std::string::npos;
+			}
+			else if (hay.type == UdonValue::Type::Array && hay.array_map)
+			{
+				for (const auto& kv : hay.array_map->values)
+				{
+					UdonValue tmp;
+					if (equal_values(kv.second, needle, tmp) && tmp.s32_value)
+					{
+						found = true;
+						break;
+					}
+				}
+			}
+			out = make_bool(found);
+			return true;
+		});
+
 		interp->register_function("to_upper", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 		{
 			if (positional.size() != 1)
@@ -866,6 +1372,211 @@ namespace udon_script_builtins
 				return true;
 			}
 			out = make_string(value_type_name(positional[0]));
+			return true;
+		});
+
+		interp->register_function("range", "start:s32, stop:s32, step:s32", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+			if (positional.empty() || positional.size() > 3)
+			{
+				err.has_error = true;
+				err.opt_error_message = "range expects (stop) or (start, stop, [step])";
+				return true;
+			}
+			s32 start = 0;
+			s32 stop = 0;
+			s32 step = 1;
+			if (positional.size() == 1)
+			{
+				stop = positional[0].s32_value;
+			}
+			else
+			{
+				start = positional[0].s32_value;
+				stop = positional[1].s32_value;
+				if (positional.size() == 3)
+					step = positional[2].s32_value;
+			}
+			if (step == 0)
+				step = 1;
+			out.type = UdonValue::Type::Array;
+			out.array_map = interp->allocate_array();
+			int idx = 0;
+			if (step > 0)
+			{
+				for (s32 v = start; v < stop; v += step)
+					array_set(out, std::to_string(idx++), make_int(v));
+			}
+			else
+			{
+				for (s32 v = start; v > stop; v += step)
+					array_set(out, std::to_string(idx++), make_int(v));
+			}
+			return true;
+		});
+
+		static std::mt19937 rng(static_cast<unsigned int>(std::chrono::steady_clock::now().time_since_epoch().count()));
+		interp->register_function("rand", "", "f32", [](UdonInterpreter*, const std::vector<UdonValue>&, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation&)
+		{
+			std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+			out = make_float(dist(rng));
+			return true;
+		});
+
+		interp->register_function("push", "arr:array, value:any", "none", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+			if (positional.size() != 2 || positional[0].type != UdonValue::Type::Array)
+			{
+				err.has_error = true;
+				err.opt_error_message = "push expects (array, value)";
+				return true;
+			}
+			int idx = static_cast<int>(positional[0].array_map->values.size());
+			array_set(const_cast<UdonValue&>(positional[0]), std::to_string(idx), positional[1]);
+			out = make_none();
+			return true;
+		});
+
+		interp->register_function("pop", "arr:array, key:any", "any", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+			if (positional.empty() || positional[0].type != UdonValue::Type::Array)
+			{
+				err.has_error = true;
+				err.opt_error_message = "pop expects (array, [key])";
+				return true;
+			}
+			UdonValue arr = positional[0];
+			std::string key;
+			if (positional.size() >= 2)
+				key = key_from_value(positional[1]);
+			else
+			{
+				int max_idx = -1;
+				for (const auto& kv : arr.array_map->values)
+				{
+					try
+					{
+						int k = std::stoi(kv.first);
+						if (k > max_idx)
+							max_idx = k;
+					}
+					catch (...)
+					{
+					}
+				}
+				if (max_idx >= 0)
+					key = std::to_string(max_idx);
+			}
+			if (key.empty())
+			{
+				out = make_none();
+				return true;
+			}
+			auto it = arr.array_map->values.find(key);
+			if (it == arr.array_map->values.end())
+			{
+				out = make_none();
+				return true;
+			}
+			out = it->second;
+			arr.array_map->values.erase(it);
+			return true;
+		});
+
+		interp->register_function("time", "", "s32", [](UdonInterpreter*, const std::vector<UdonValue>&, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation&)
+		{
+			using namespace std::chrono;
+			auto now = system_clock::now();
+			auto secs = duration_cast<seconds>(now.time_since_epoch()).count();
+			out = make_int(static_cast<s32>(secs));
+			return true;
+		});
+
+		interp->register_function("to_json", "value:any", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+			if (positional.size() != 1)
+			{
+				err.has_error = true;
+				err.opt_error_message = "to_json expects (value)";
+				return true;
+			}
+			out = make_string(to_json(positional[0]));
+			return true;
+		});
+
+		interp->register_function("parse_json", "s:string", "any", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+			if (positional.size() != 1)
+			{
+				err.has_error = true;
+				err.opt_error_message = "parse_json expects (string)";
+				return true;
+			}
+			JsonParser parser(value_to_string(positional[0]));
+			if (!parser.parse_value(out))
+			{
+				err.has_error = true;
+				err.opt_error_message = "Failed to parse JSON";
+			}
+			return true;
+		});
+		interp->register_function("uri_encode", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+			if (positional.size() != 1)
+			{
+				err.has_error = true;
+				err.opt_error_message = "uri_encode expects (string)";
+				return true;
+			}
+			out = make_string(url_encode(value_to_string(positional[0])));
+			return true;
+		});
+
+		interp->register_function("uri_decode", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+			if (positional.size() != 1)
+			{
+				err.has_error = true;
+				err.opt_error_message = "uri_decode expects (string)";
+				return true;
+			}
+			out = make_string(url_decode(value_to_string(positional[0])));
+			return true;
+		});
+
+		interp->register_function("base64_encode", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+			if (positional.size() != 1)
+			{
+				err.has_error = true;
+				err.opt_error_message = "base64_encode expects (string)";
+				return true;
+			}
+			out = make_string(base64_encode(value_to_string(positional[0])));
+			return true;
+		});
+
+		interp->register_function("base64_decode", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+			if (positional.size() != 1)
+			{
+				err.has_error = true;
+				err.opt_error_message = "base64_decode expects (string)";
+				return true;
+			}
+			out = make_string(base64_decode(value_to_string(positional[0])));
+			return true;
+		});
+
+		interp->register_function("parse_formdata", "s:string", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+			if (positional.size() != 1)
+			{
+				err.has_error = true;
+				err.opt_error_message = "parse_formdata expects (string)";
+				return true;
+			}
+			out = parse_form_data(value_to_string(positional[0]), interp);
 			return true;
 		});
 	}
