@@ -166,9 +166,9 @@ namespace udon_script_builtins
 				interp->builtins[alias] = it->second;
 		};
 
-		interp->register_function("keys", "arr:array", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		interp->register_function("keys", "arr:any", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 		{
-			if (positional.empty() || positional[0].type != UdonValue::Type::Array)
+			if (positional.empty())
 			{
 				err.has_error = true;
 				err.opt_error_message = "keys expects an array";
@@ -179,20 +179,33 @@ namespace udon_script_builtins
 			out.array_map = interp->allocate_array();
 
 			int idx = 0;
-			for (const auto& kv : positional[0].array_map->values)
+			if (positional[0].type == UdonValue::Type::Array && positional[0].array_map)
 			{
-				std::string idx_str = std::to_string(idx);
-				array_set(out, idx_str, make_string(kv.first));
-				idx++;
+				for (const auto& kv : positional[0].array_map->values)
+				{
+					std::string idx_str = std::to_string(idx);
+					array_set(out, idx_str, make_string(kv.first));
+					idx++;
+				}
+			}
+			else if (positional[0].type == UdonValue::Type::String)
+			{
+				for (size_t i = 0; i < positional[0].string_value.size(); ++i)
+					array_set(out, std::to_string(idx++), make_string(std::to_string(i)));
+			}
+			else
+			{
+				err.has_error = true;
+				err.opt_error_message = "keys expects an array";
 			}
 
 			return true;
 		});
 		register_alias("array_keys", "keys");
 
-		interp->register_function("array_get", "arr:array, key:any", "any", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		interp->register_function("array_get", "arr:any, key:any", "any", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 		{
-			if (positional.size() < 2 || positional[0].type != UdonValue::Type::Array)
+			if (positional.size() < 2)
 			{
 				err.has_error = true;
 				err.opt_error_message = "array_get expects (array, key)";
@@ -200,7 +213,27 @@ namespace udon_script_builtins
 			}
 
 			std::string key_str = key_from_value(positional[1]);
-			if (!array_get(positional[0], key_str, out))
+			if (positional[0].type == UdonValue::Type::Array)
+			{
+				if (!array_get(positional[0], key_str, out))
+					out = make_none();
+			}
+			else if (positional[0].type == UdonValue::Type::String)
+			{
+				try
+				{
+					int idx = std::stoi(key_str);
+					if (idx >= 0 && static_cast<size_t>(idx) < positional[0].string_value.size())
+						out = make_string(std::string(1, positional[0].string_value[static_cast<size_t>(idx)]));
+					else
+						out = make_none();
+				}
+				catch (...)
+				{
+					out = make_none();
+				}
+			}
+			else
 			{
 				out = make_none();
 			}
@@ -468,6 +501,123 @@ namespace udon_script_builtins
 			return true;
 		});
 
+		interp->register_function("split", "s:string, delim:string", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+			if (positional.size() != 2)
+			{
+				err.has_error = true;
+				err.opt_error_message = "split expects (string, delim)";
+				return true;
+			}
+			std::string s = value_to_string(positional[0]);
+			std::string delim = value_to_string(positional[1]);
+			out.type = UdonValue::Type::Array;
+			out.array_map = interp->allocate_array();
+			if (delim.empty())
+			{
+				for (size_t i = 0; i < s.size(); ++i)
+					array_set(out, std::to_string(i), make_string(std::string(1, s[i])));
+				return true;
+			}
+			size_t idx = 0;
+			size_t pos = 0;
+			while (true)
+			{
+				size_t next = s.find(delim, pos);
+				std::string chunk = (next == std::string::npos) ? s.substr(pos) : s.substr(pos, next - pos);
+				array_set(out, std::to_string(idx++), make_string(chunk));
+				if (next == std::string::npos)
+					break;
+				pos = next + delim.size();
+			}
+			return true;
+		});
+
+		interp->register_function("glyphs", "s:string", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+			if (positional.size() != 1)
+			{
+				err.has_error = true;
+				err.opt_error_message = "glyphs expects (string)";
+				return true;
+			}
+			const std::string& s = value_to_string(positional[0]);
+			out.type = UdonValue::Type::Array;
+			out.array_map = interp->allocate_array();
+			size_t idx = 0;
+			for (size_t i = 0; i < s.size();)
+			{
+				unsigned char c = static_cast<unsigned char>(s[i]);
+				size_t len = 1;
+				if ((c & 0x80) == 0)
+					len = 1;
+				else if ((c & 0xE0) == 0xC0)
+					len = 2;
+				else if ((c & 0xF0) == 0xE0)
+					len = 3;
+				else if ((c & 0xF8) == 0xF0)
+					len = 4;
+				if (i + len > s.size())
+					len = 1;
+				std::string glyph = s.substr(i, len);
+				array_set(out, std::to_string(idx++), make_string(glyph));
+				i += len;
+			}
+			return true;
+		});
+
+		interp->register_function("join", "arr:array, delim:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+			if (positional.size() != 2 || positional[0].type != UdonValue::Type::Array)
+			{
+				err.has_error = true;
+				err.opt_error_message = "join expects (array, delim)";
+				return true;
+			}
+			std::string delim = value_to_string(positional[1]);
+			std::vector<std::pair<int, std::string>> elems;
+			for (const auto& kv : positional[0].array_map->values)
+			{
+				int idx = 0;
+				try
+				{
+					idx = std::stoi(kv.first);
+				}
+				catch (...)
+				{
+					continue;
+				}
+				elems.emplace_back(idx, value_to_string(kv.second));
+			}
+			std::sort(elems.begin(), elems.end(), [](auto& a, auto& b)
+			{ return a.first < b.first; });
+			std::ostringstream ss;
+			for (size_t i = 0; i < elems.size(); ++i)
+			{
+				if (i)
+					ss << delim;
+				ss << elems[i].second;
+			}
+			out = make_string(ss.str());
+			return true;
+		});
+
+		interp->register_function("chr", "code:s32", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+			if (positional.size() != 1)
+			{
+				err.has_error = true;
+				err.opt_error_message = "chr expects (code)";
+				return true;
+			}
+			int code = static_cast<int>(as_number(positional[0]));
+			if (code < 0 || code > 255)
+				code = code & 0xFF;
+			std::string s(1, static_cast<char>(code));
+			out = make_string(s);
+			return true;
+		});
+
 		interp->register_function("vec2", "x:number, y:number", "vec2", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 		{
 			if (positional.size() != 2)
@@ -544,6 +694,24 @@ namespace udon_script_builtins
 			return true;
 		});
 		register_alias("array_len", "len");
+
+		interp->register_function("$html", "template:string", "function", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+			if (positional.size() != 1 || positional[0].type != UdonValue::Type::String)
+			{
+				err.has_error = true;
+				err.opt_error_message = "$html expects a single string template";
+				return true;
+			}
+
+			auto* fn_obj = interp->allocate_function();
+			fn_obj->handler = "html_template";
+			fn_obj->template_body = positional[0].string_value;
+
+			out.type = UdonValue::Type::Function;
+			out.function = fn_obj;
+			return true;
+		});
 
 		interp->register_function("substr", "s:string, start:s32, count:s32", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 		{

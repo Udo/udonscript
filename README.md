@@ -25,6 +25,7 @@ This compiles the core library and all programs in `src/programs/`:
 - `us` - Command-line script executor
 - `repl` - Interactive Read-Eval-Print Loop
 - `testrunner` - Automated test suite runner
+- `dump` - Compile-only tool that prints decoded bytecode for debugging
 
 ### Hello World
 

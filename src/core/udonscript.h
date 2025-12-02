@@ -26,6 +26,7 @@ struct Token
 		String,
 		Keyword,
 		Symbol,
+		Template,
 		EndOfFile,
 		Unknown
 	};
@@ -34,6 +35,7 @@ struct Token
 	std::string text;
 	u32 line;
 	u32 column;
+	std::string template_content;
 };
 
 struct UdonValue
@@ -181,5 +183,7 @@ struct UdonValue::ManagedFunction
 {
 	std::string function_name;
 	std::unordered_map<std::string, UdonValue> captured_locals;
+	std::string handler; // optional builtin handler tag
+	std::string template_body; // optional payload for template handlers
 	bool marked = false;
 };

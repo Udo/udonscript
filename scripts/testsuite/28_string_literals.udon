@@ -1,0 +1,18 @@
+// Test: single quotes and multiline strings
+function main() {
+    var a = 'single quoted'
+    var b = "double quoted"
+    var multi = "line1\nline2"
+    var multi2 = 'lineA
+lineB'
+
+    var tpl = $html(<><div>Hello {who}</div></>)
+    var tpl2 = $html(<<<)
+    print(tpl({who: "you"}))
+    print(tpl2({}))
+
+    print(a)
+    print(b)
+    print(multi)
+    print(multi2)
+}

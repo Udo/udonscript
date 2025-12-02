@@ -1257,6 +1257,18 @@ namespace
 				return parse_postfix(body, locals);
 			}
 
+			if (peek().type == Token::Type::Template)
+			{
+				Token templ = advance();
+				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_string(templ.template_content) });
+				std::vector<Value> ops;
+				ops.push_back(make_string(templ.text));
+				ops.push_back(make_int(1));
+				ops.push_back(make_string(""));
+				emit(body, UdonInstruction::OpCode::CALL, ops);
+				return parse_postfix(body, locals);
+			}
+
 			if (match_symbol("("))
 			{
 				if (!parse_expression(body, locals))
@@ -1268,7 +1280,6 @@ namespace
 
 			if (match_symbol("{"))
 			{
-
 				std::vector<std::string> keys;
 				std::vector<bool> values_parsed;
 
@@ -1308,7 +1319,6 @@ namespace
 						return false;
 				}
 
-
 				for (const auto& k : keys)
 					emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_string(k) });
 
@@ -1318,6 +1328,17 @@ namespace
 				ops.push_back(make_string("__object_literal"));
 				ops.push_back(make_int(static_cast<s32>(keys.size() * 2 + 1))); // total arg count
 
+				emit(body, UdonInstruction::OpCode::CALL, ops);
+				return parse_postfix(body, locals);
+			}
+			if (peek().type == Token::Type::Template)
+			{
+				Token templ = advance();
+				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_string(templ.template_content) });
+				std::vector<Value> ops;
+				ops.push_back(make_string(templ.text));
+				ops.push_back(make_int(1));
+				ops.push_back(make_string(""));
 				emit(body, UdonInstruction::OpCode::CALL, ops);
 				return parse_postfix(body, locals);
 			}
@@ -1772,6 +1793,42 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				{
 					if (fn_val.type != Value::Type::Function || !fn_val.function)
 						return false;
+					if (!fn_val.function->handler.empty())
+					{
+						if (fn_val.function->handler == "html_template")
+						{
+							std::string rendered;
+							std::unordered_map<std::string, UdonValue> replacements;
+							if (!positional.empty() && positional[0].type == Value::Type::Array && positional[0].array_map)
+								replacements = positional[0].array_map->values;
+							const std::string& tmpl = fn_val.function->template_body;
+							size_t pos = 0;
+							while (pos < tmpl.size())
+							{
+								size_t brace = tmpl.find('{', pos);
+								if (brace == std::string::npos)
+								{
+									rendered.append(tmpl.substr(pos));
+									break;
+								}
+								rendered.append(tmpl.substr(pos, brace - pos));
+								size_t end = tmpl.find('}', brace + 1);
+								if (end == std::string::npos)
+								{
+									rendered.append(tmpl.substr(brace));
+									break;
+								}
+								std::string key = tmpl.substr(brace + 1, end - brace - 1);
+								auto it = replacements.find(key);
+								if (it != replacements.end())
+									rendered.append(udon_script_helpers::value_to_string(it->second));
+								pos = end + 1;
+							}
+							call_result = udon_script_helpers::make_string(rendered);
+							return true;
+						}
+						return false;
+					}
 					auto code_it = interp->instructions.find(fn_val.function->function_name);
 					if (code_it == interp->instructions.end())
 					{
@@ -1945,7 +2002,7 @@ std::vector<Token> UdonInterpreter::tokenize(const std::string& source_code)
 	int bracket_depth = 0;
 	auto can_end_statement = [](const Token& t) -> bool
 	{
-		if (t.type == Token::Type::Identifier || t.type == Token::Type::Number || t.type == Token::Type::String)
+		if (t.type == Token::Type::Identifier || t.type == Token::Type::Number || t.type == Token::Type::String || t.type == Token::Type::Template)
 			return true;
 		if (t.type == Token::Type::Keyword && (t.text == "true" || t.text == "false" || t.text == "return" || t.text == "break" || t.text == "continue"))
 			return true;
@@ -2006,6 +2063,135 @@ std::vector<Token> UdonInterpreter::tokenize(const std::string& source_code)
 			i++;
 			line++;
 			column = 1;
+			continue;
+		}
+
+		if (c == '$' && i + 1 < len && is_ident_start(source_code[i + 1]))
+		{
+			u32 tok_line = line;
+			u32 tok_col = column;
+			i++;
+			column++;
+			size_t start = i;
+			while (i < len && is_ident_char(source_code[i]))
+			{
+				i++;
+				column++;
+			}
+			std::string proc = source_code.substr(start, i - start);
+			while (i < len && (source_code[i] == ' ' || source_code[i] == '\t'))
+			{
+				i++;
+				column++;
+			}
+
+			if (i >= len)
+			{
+				push_token(Token::Type::Unknown, "$" + proc, tok_line, tok_col);
+				continue;
+			}
+
+			auto matching = [](char open) -> char
+			{
+				switch (open)
+				{
+					case '(':
+						return ')';
+					case '[':
+						return ']';
+					case '{':
+						return '}';
+					case '<':
+						return '>';
+					default:
+						return 0;
+				}
+			};
+
+			char open_ch = source_code[i];
+			char close_ch = matching(open_ch);
+			if (!close_ch)
+			{
+				push_token(Token::Type::Unknown, "$" + proc, tok_line, tok_col);
+				continue;
+			}
+			i++;
+			column++;
+
+			size_t content_start = i;
+			int depth = 1;
+			bool in_quote = false;
+			char quote_char = 0;
+			while (i < len)
+			{
+				char ch = source_code[i];
+				if (in_quote)
+				{
+					if (ch == '\\' && i + 1 < len)
+					{
+						i += 2;
+						column += 2;
+						continue;
+					}
+					if (ch == quote_char)
+						in_quote = false;
+					if (ch == '\n')
+					{
+						line++;
+						column = 1;
+					}
+					else
+					{
+						column++;
+					}
+					i++;
+					continue;
+				}
+				if (ch == '"' || ch == '\'')
+				{
+					in_quote = true;
+					quote_char = ch;
+					i++;
+					column++;
+					continue;
+				}
+				if (ch == open_ch)
+					depth++;
+				else if (ch == close_ch)
+					depth--;
+
+				if (depth == 0)
+					break;
+
+				if (ch == '\n')
+				{
+					line++;
+					column = 1;
+				}
+				else
+				{
+					column++;
+				}
+				i++;
+			}
+
+			size_t content_end = i;
+			std::string content = source_code.substr(content_start, content_end - content_start);
+			if (i < len && source_code[i] == close_ch)
+			{
+				i++;
+				column++;
+			}
+
+			Token t{};
+			t.type = Token::Type::Template;
+			t.text = "$" + proc;
+			t.template_content = content;
+			t.line = tok_line;
+			t.column = tok_col;
+			tokens.push_back(t);
+			last_token = t;
+			has_last_token = true;
 			continue;
 		}
 
@@ -2081,14 +2267,15 @@ std::vector<Token> UdonInterpreter::tokenize(const std::string& source_code)
 			continue;
 		}
 
-		if (c == '"')
+		if (c == '"' || c == '\'')
 		{
 			u32 tok_line = line;
 			u32 tok_col = column;
+			char quote = c;
 			i++;
 			column++;
 			std::string literal;
-			while (i < len && source_code[i] != '"')
+			while (i < len && source_code[i] != quote)
 			{
 				if (source_code[i] == '\\' && i + 1 < len)
 				{
@@ -2098,14 +2285,29 @@ std::vector<Token> UdonInterpreter::tokenize(const std::string& source_code)
 						case 'n':
 							literal.push_back('\n');
 							break;
+						case 'r':
+							literal.push_back('\r');
+							break;
 						case 't':
 							literal.push_back('\t');
+							break;
+						case '0':
+							literal.push_back('\0');
+							break;
+						case 'b':
+							literal.push_back('\b');
+							break;
+						case 'f':
+							literal.push_back('\f');
 							break;
 						case '\\':
 							literal.push_back('\\');
 							break;
 						case '"':
 							literal.push_back('"');
+							break;
+						case '\'':
+							literal.push_back('\'');
 							break;
 						default:
 							literal.push_back(esc);
@@ -2114,6 +2316,13 @@ std::vector<Token> UdonInterpreter::tokenize(const std::string& source_code)
 					i += 2;
 					column += 2;
 				}
+				else if (source_code[i] == '\n')
+				{
+					literal.push_back('\n');
+					i++;
+					line++;
+					column = 1;
+				}
 				else
 				{
 					literal.push_back(source_code[i]);
@@ -2121,7 +2330,7 @@ std::vector<Token> UdonInterpreter::tokenize(const std::string& source_code)
 					column++;
 				}
 			}
-			if (i < len && source_code[i] == '"')
+			if (i < len && source_code[i] == quote)
 			{
 				i++;
 				column++;
@@ -2293,16 +2502,26 @@ std::string UdonInterpreter::dump_instructions() const
 		{
 			const auto& instr = body[i];
 			ss << "  [" << i << "] ";
+			if (instr.opcode == UdonInstruction::OpCode::PUSH_LITERAL && !instr.operands.empty())
+			{
+				ss << "PUSH " << value_to_string(instr.operands[0]);
+				ss << "\n";
+				continue;
+			}
+			auto print_var = [&](const std::string& label)
+			{
+				ss << label << " " << (instr.operands.empty() ? "<anon>" : instr.operands[0].string_value);
+			};
 			switch (instr.opcode)
 			{
 				case UdonInstruction::OpCode::PUSH_LITERAL:
-					ss << "PUSH " << (instr.operands.empty() ? "<none>" : value_to_string(instr.operands[0]));
+					ss << "PUSH <none>";
 					break;
 				case UdonInstruction::OpCode::LOAD_VAR:
-					ss << "LOAD " << (instr.operands.empty() ? "<anon>" : instr.operands[0].string_value);
+					print_var("LOAD");
 					break;
 				case UdonInstruction::OpCode::STORE_VAR:
-					ss << "STORE " << (instr.operands.empty() ? "<anon>" : instr.operands[0].string_value);
+					print_var("STORE");
 					break;
 				case UdonInstruction::OpCode::ADD:
 					ss << "ADD";
