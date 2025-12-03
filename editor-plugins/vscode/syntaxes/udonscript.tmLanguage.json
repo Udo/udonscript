@@ -13,6 +13,7 @@
     "comments": {
       "patterns": [
         { "name": "comment.line.double-slash.udon", "match": "//.*$" },
+        { "name": "comment.line.hash.udon", "match": "#.*$" },
         { "name": "comment.block.udon", "begin": "/\\*", "end": "\\*/" }
       ]
     },
