@@ -278,10 +278,10 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 	auto last_gc_time = std::chrono::steady_clock::now();
 	auto maybe_collect_periodic = [&]()
 	{
+		++steps_since_gc;
 		if (steps_since_gc % 1000 != 0)
 			return;
 		const auto now = std::chrono::steady_clock::now();
-		++steps_since_gc;
 		const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_gc_time).count();
 		if (steps_since_gc >= gc_step_budget || elapsed_ms >= gc_time_budget_ms)
 		{
