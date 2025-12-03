@@ -1093,6 +1093,8 @@ UdonInterpreter::~UdonInterpreter()
 #if defined(__unix__) || defined(__APPLE__)
 		if (h)
 			dlclose(h);
+#else
+		(void)h;
 #endif
 	}
 	dl_handles.clear();
@@ -1706,6 +1708,8 @@ void UdonInterpreter::clear()
 #if defined(__unix__) || defined(__APPLE__)
 		if (h)
 			dlclose(h);
+#else
+		(void)h;
 #endif
 	}
 	dl_handles.clear();

@@ -747,6 +747,9 @@ void register_builtins(UdonInterpreter* interp)
 	interp->register_function("dl_open", "path:string", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 	{
 #if !defined(__unix__) && !defined(__APPLE__)
+		(void)interp;
+		(void)positional;
+		(void)out;
 		err.has_error = true;
 		err.opt_error_message = "dl_open is only supported on POSIX platforms";
 		return true;
