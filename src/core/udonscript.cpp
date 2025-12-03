@@ -1353,21 +1353,24 @@ std::vector<Token> UdonInterpreter::tokenize(const std::string& source_code)
 			continue;
 		}
 
-		if (c == '/' && i + 1 < len && source_code[i + 1] == '/')
+		if ((c == '#' && column == 1) || (c == '/' && i + 1 < len && source_code[i + 1] == '/'))
 		{
 			i += 2;
 			column += 2;
+			size_t start = i - (c == '#' ? 1 : 0);
 			while (i < len && source_code[i] != '\n')
 			{
 				i++;
 				column++;
 			}
+			context_info["comment_lines"].push_back(source_code.substr(start, i - start));
 			continue;
 		}
 		if (c == '/' && i + 1 < len && source_code[i + 1] == '*')
 		{
 			i += 2;
 			column += 2;
+			size_t start = i;
 			while (i + 1 < len && !(source_code[i] == '*' && source_code[i + 1] == '/'))
 			{
 				if (source_code[i] == '\n')
@@ -1381,6 +1384,8 @@ std::vector<Token> UdonInterpreter::tokenize(const std::string& source_code)
 				}
 				i++;
 			}
+			size_t end = i;
+			context_info["comment_lines"].push_back(source_code.substr(start, end - start));
 			i += 2;
 			column += 2;
 			continue;
@@ -1551,10 +1556,7 @@ std::vector<Token> UdonInterpreter::tokenize(const std::string& source_code)
 
 void UdonInterpreter::seed_builtin_globals()
 {
-	declared_globals.insert("Entities");
-	declared_globals.insert("Materials");
-	declared_globals.insert("Meshes");
-	declared_globals.insert("Textures");
+	declared_globals.insert("context"); // will be filled with context info at runtime
 }
 
 CodeLocation UdonInterpreter::compile(const std::string& source_code)
@@ -1571,6 +1573,7 @@ CodeLocation UdonInterpreter::compile(const std::string& source_code)
 	declared_globals.clear();
 	global_init_counter = 0;
 	lambda_counter = 0;
+	context_info.clear();
 	seed_builtin_globals();
 	return compile_append(source_code);
 }
@@ -1597,6 +1600,26 @@ CodeLocation UdonInterpreter::compile_append(const std::string& source_code)
 	CodeLocation res = parser.parse();
 	if (res.has_error)
 		return res;
+
+	auto populate_context_global = [&]()
+	{
+		UdonValue ctx{};
+		ctx.type = UdonValue::Type::Array;
+		ctx.array_map = allocate_array();
+		for (const auto& pair : context_info)
+		{
+			UdonValue arr{};
+			arr.type = UdonValue::Type::Array;
+			arr.array_map = allocate_array();
+			s32 index = 0;
+			for (const auto& line : pair.second)
+				array_set(arr, std::to_string(index++), make_string(line));
+			array_set(ctx, pair.first, arr);
+		}
+		globals["context"] = ctx;
+	};
+	populate_context_global();
+
 	if (!module_global_init.empty())
 	{
 		std::string init_fn = "__globals_init_" + std::to_string(global_init_counter++);

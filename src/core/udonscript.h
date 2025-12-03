@@ -158,6 +158,7 @@ struct UdonInterpreter
 	std::vector<std::unique_ptr<UdonInterpreter>> imported_interpreters;
 	s32 global_init_counter = 0;
 	s32 lambda_counter = 0;
+	std::unordered_map<std::string, std::vector<std::string>> context_info;
 
 	UdonInterpreter();
 	~UdonInterpreter();
