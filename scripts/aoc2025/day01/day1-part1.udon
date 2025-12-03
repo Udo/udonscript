@@ -71,9 +71,9 @@ function wrap_position(pos) {
 function count_zero_hits(lines) {
     var pos = start_position
     var zeros = 0
-    print("Lines to process:", lines.len())
-    foreach (var idx, raw in lines) {
-        var line = trim(raw)
+    var n = lines.len()
+    for (var i = 0; i < n; i = i + 1) {
+        var line = trim(lines[i])
         if (line.len() == 0)
             continue
         var direction = line.substr(0, 1)
@@ -82,8 +82,6 @@ function count_zero_hits(lines) {
             pos = wrap_position(pos - distance)
         else if (direction == "R")
             pos = wrap_position(pos + distance)
-        else
-            continue
         if (pos == 0)
             zeros = zeros + 1
     }
