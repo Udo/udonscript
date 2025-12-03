@@ -1,0 +1,15 @@
+// Test: Ternary conditional operator
+function main() {
+    print("t_true:", true ? 1 : 2)
+    print("t_false:", false ? 1 : 2)
+    print("t_zero:", 0 ? "yes" : "no")
+    print("t_num:", 5 ? "hi" : "bye")
+    var nested = false ? 1 : true ? 2 : 3
+    print("nested:", nested)
+    var a = 0
+    var b = true ? (a = 10) : (a = 20)
+    print("assign:", a, b)
+    var c = 0
+    var res = (c == 0) ? (c = c + 1) : (c = c + 100)
+    print("side:", res, c)
+}

@@ -28,6 +28,9 @@ struct Parser
 		const std::unordered_set<std::string>& chunk_globals_out,
 		s32& lambda_counter_ref)
 		: tokens(tokens),
+		  current(0),
+		  stop_at_colon(false),
+		  error_location{},
 		  instructions(instructions_out),
 		  params(params_out),
 		  variadic(variadic_out),
@@ -46,6 +49,7 @@ struct Parser
 
 	const std::vector<Token>& tokens;
 	size_t current = 0;
+	bool stop_at_colon = false;
 	CodeLocation error_location{};
 	std::unordered_map<std::string, std::vector<UdonInstruction>>& instructions;
 	std::unordered_map<std::string, std::vector<std::string>>& params;
@@ -165,6 +169,7 @@ struct Parser
 	bool parse_statement_or_block(std::vector<UdonInstruction>& body, FunctionContext& ctx, bool create_scope = true);
 	bool parse_statement(std::vector<UdonInstruction>& body, FunctionContext& ctx);
 	bool parse_expression(std::vector<UdonInstruction>& body, FunctionContext& ctx);
+	bool parse_ternary(std::vector<UdonInstruction>& body, FunctionContext& ctx);
 	bool parse_or(std::vector<UdonInstruction>& body, FunctionContext& ctx);
 	bool parse_and(std::vector<UdonInstruction>& body, FunctionContext& ctx);
 	bool parse_equality(std::vector<UdonInstruction>& body, FunctionContext& ctx);

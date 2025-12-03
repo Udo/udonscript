@@ -667,7 +667,15 @@ Generates array of integers.
 
 ### `push(arr, value)` / `pop(arr, [key])`
 
-Array push/pop (pop returns `none` if not found).
+Array push/pop (pop returns `none` if not found). `push` appends at the next numeric index; `pop` with no key removes the highest numeric index. Method-call sugar works too: `arr.push(v)`, `arr.pop()`.
+
+### `delete(arr, key)`
+
+Removes `key` from the array and returns its value (`none` if missing). Also callable as `arr.delete(key)`.
+
+### `shift(arr)` / `unshift(arr, value)`
+
+`shift` removes the lowest numeric index (compacts numeric keys down by one). `unshift` inserts at numeric index 0 and shifts numeric keys up by one. Non-numeric keys remain unchanged. Method-call sugar: `arr.shift()` / `arr.unshift(v)`.
 
 ### `rand()`
 

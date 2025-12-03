@@ -904,6 +904,36 @@ bool Parser::parse_expression(std::vector<UdonInstruction>& body, FunctionContex
 	return parse_assignment_or_expression(body, ctx, produced);
 }
 
+bool Parser::parse_ternary(std::vector<UdonInstruction>& body, FunctionContext& ctx)
+{
+	if (!parse_or(body, ctx))
+		return false;
+	while (match_symbol("?"))
+	{
+		size_t jmp_false = body.size();
+		emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+		bool prev_stop = stop_at_colon;
+		stop_at_colon = true;
+		if (!parse_expression(body, ctx))
+			return false;
+		stop_at_colon = prev_stop;
+		size_t jmp_end = body.size();
+		emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
+		if (!expect_symbol(":", "Expected ':' in ternary expression"))
+			return false;
+		size_t else_index = body.size();
+		body[jmp_false].operands[0].s32_value = static_cast<s32>(else_index);
+		prev_stop = stop_at_colon;
+		stop_at_colon = true;
+		if (!parse_expression(body, ctx))
+			return false;
+		stop_at_colon = prev_stop;
+		size_t end_index = body.size();
+		body[jmp_end].operands[0].s32_value = static_cast<s32>(end_index);
+	}
+	return true;
+}
+
 bool Parser::parse_or(std::vector<UdonInstruction>& body, FunctionContext& ctx)
 {
 	if (!parse_and(body, ctx))
@@ -1430,13 +1460,14 @@ bool Parser::parse_assignment_or_expression(std::vector<UdonInstruction>& body, 
 			if (op != "=")
 				emit(body, compound_op);
 			emit_store_var(body, var_ref);
-			produced_value = false;
+			emit_load_var(body, var_ref); // leave assigned value on stack
+			produced_value = true;
 			return true;
 		}
 		current--; // rewind name consumption
 	}
 	produced_value = true;
-	return parse_or(body, ctx);
+	return parse_ternary(body, ctx);
 }
 
 bool Parser::parse_additive(std::vector<UdonInstruction>& body, FunctionContext& ctx)
@@ -1537,6 +1568,8 @@ bool Parser::parse_postfix(std::vector<UdonInstruction>& body, FunctionContext& 
 {
 	while (true)
 	{
+		if (stop_at_colon && check_symbol(":"))
+			break;
 		if (match_symbol("."))
 		{
 			if (!parse_method_postfix(body, ctx))

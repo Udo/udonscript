@@ -69,6 +69,9 @@ x == y   x != y   x < y    x <= y   x > y    x >= y
 // Logical
 !x       x && y   x || y
 
+// Conditional
+cond ? valueIfTrue : valueIfFalse
+
 // String concatenation
 "Hello" + " " + "World"
 ```
@@ -105,6 +108,8 @@ foreach (key, value in data) {
 - `to_upper(s)` - Convert to uppercase
 - `to_lower(s)` - Convert to lowercase
 - `trim(s)` - Remove whitespace
+- `split(s, delim)` / `join(arr, delim)` - Split/join strings
+- `replace(s, old, new, [count])` - Replace substrings
 
 ### Type Conversion
 - `to_s32(value)` - Convert to integer
@@ -130,6 +135,13 @@ foreach (key, value in data) {
 - `to_shellarg(s)` - Escape for shell
 - `to_htmlsafe(s)` - Escape for HTML
 - `to_sqlarg(s)` - Escape for SQL
+
+### Arrays/Maps
+- `push(arr, v)` / `pop(arr, [key])` - Append/remove; `pop` defaults to highest numeric key (method sugar: `arr.push(v)`, `arr.pop()`)
+- `shift(arr)` / `unshift(arr, v)` - Remove lowest numeric key / insert at 0 and shift (method sugar: `arr.shift()`, `arr.unshift(v)`)
+- `delete(arr, key)` - Remove key (method sugar: `arr.delete(key)`)
+- `keys(arr)` - Get keys
+- `array_get(arr, key)` - Safe lookup (returns `none` if missing)
 
 ### Type Inspection
 - `typeof(value)` - Get type name as string
