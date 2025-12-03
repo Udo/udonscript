@@ -1,0 +1,16 @@
+// Test: array delete, shift, unshift helpers
+function main() {
+    var a = {}
+    push(a, "x")
+    push(a, "y")
+    push(a, "z")
+    print("len1:", len(a))
+    print("shift1:", shift(a))
+    print("len2:", len(a))
+    unshift(a, "new")
+    print("after_unshift0:", a:0)
+    print("after_unshift1:", a:1)
+    print("pop:", pop(a))
+    print("delete_key:", delete(a, 0))
+    print("len3:", len(a))
+}

@@ -1,0 +1,101 @@
+// Demo: Simple roguelike-style dungeon with rectangular rooms and corridors.
+
+function rand_int(min, max) {
+    return(min + floor(rand() * (max - min + 1)))
+}
+
+function make_grid(w, h, ch) {
+    var g = {}
+    for (var y = 0; y < h; y = y + 1) {
+        var row = {}
+        for (var x = 0; x < w; x = x + 1)
+            row[x] = ch
+        g[y] = row
+    }
+    return(g)
+}
+
+function set_tile(g, x, y, ch) {
+    var row = g[y]
+    row[x] = ch
+    g[y] = row
+}
+
+function draw_rect(g, x1, y1, x2, y2, ch) {
+    for (var y = y1; y <= y2; y = y + 1) {
+        var row = g[y]
+        for (var x = x1; x <= x2; x = x + 1)
+            row[x] = ch
+        g[y] = row
+    }
+}
+
+function overlaps(rooms, x1, y1, x2, y2) {
+    foreach (var _, r in rooms) {
+        if (x1 <= r:x2 && x2 >= r:x1 && y1 <= r:y2 && y2 >= r:y1)
+            return(true)
+    }
+    return(false)
+}
+
+function carve_corridor(g, x1, y1, x2, y2) {
+    // L-shaped corridor: horizontal then vertical
+    var cx = x1
+    var cy = y1
+    var step = (x2 >= cx) ? 1 : -1
+    while (cx != x2) {
+        set_tile(g, cx, cy, ".")
+        cx = cx + step
+    }
+    step = (y2 >= cy) ? 1 : -1
+    while (cy != y2) {
+        set_tile(g, cx, cy, ".")
+        cy = cy + step
+    }
+    set_tile(g, cx, cy, ".")
+}
+
+function generate_dungeon(w, h, max_rooms) {
+    var grid = make_grid(w, h, "#")
+    var rooms = {}
+    var room_count = 0
+    for (var attempt = 0; attempt < max_rooms * 5; attempt = attempt + 1) {
+        var rw = rand_int(4, 10)
+        var rh = rand_int(4, 8)
+        var rx = rand_int(1, w - rw - 2)
+        var ry = rand_int(1, h - rh - 2)
+        var x2 = rx + rw - 1
+        var y2 = ry + rh - 1
+        if (overlaps(rooms, rx - 1, ry - 1, x2 + 1, y2 + 1))
+            continue
+        var room = {x1: rx, y1: ry, x2: x2, y2: y2, cx: to_s32((rx + x2) / 2), cy: to_s32((ry + y2) / 2)}
+        rooms[room_count] = room
+        room_count = room_count + 1
+        draw_rect(grid, rx, ry, x2, y2, ".")
+        if (room_count > 1) {
+            var prev = rooms[room_count - 2]
+            carve_corridor(grid, prev:cx, prev:cy, room:cx, room:cy)
+        }
+        if (room_count >= max_rooms)
+            break
+    }
+    return(grid)
+}
+
+function render_grid(grid, w, h) {
+    for (var y = 0; y < h; y = y + 1) {
+        var row = grid[y]
+        var line = ""
+        for (var x = 0; x < w; x = x + 1)
+            line = line + row[x]
+        print(line)
+    }
+}
+
+function main() {
+    var w = 60
+    var h = 30
+    var grid = generate_dungeon(w, h, 12)
+    print("=== Roguelike Rooms ===")
+    render_grid(grid, w, h)
+}

@@ -1,9 +1,0 @@
-#!bin/us
-
-/* Demo UdonScript 
-context.udon 
-multiline comment */
-
-function main() {
-    print(globals())
-}

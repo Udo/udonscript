@@ -1,0 +1,8 @@
+len1: 3
+shift1: x
+len2: 2
+after_unshift0: new
+after_unshift1: y
+pop: z
+delete_key: new
+len3: 1

@@ -1636,6 +1636,129 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
+	interp->register_function("delete", "arr:array, key:any", "any", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	{
+		if (positional.size() != 2 || positional[0].type != UdonValue::Type::Array)
+		{
+			err.has_error = true;
+			err.opt_error_message = "delete expects (array, key)";
+			return true;
+		}
+		UdonValue arr = positional[0];
+		std::string key = key_from_value(positional[1]);
+		auto it = arr.array_map->values.find(key);
+		if (it == arr.array_map->values.end())
+		{
+			out = make_none();
+			return true;
+		}
+		out = it->second;
+		arr.array_map->values.erase(it);
+		return true;
+	});
+
+	interp->register_function("shift", "arr:array", "any", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	{
+		if (positional.size() != 1 || positional[0].type != UdonValue::Type::Array)
+		{
+			err.has_error = true;
+			err.opt_error_message = "shift expects (array)";
+			return true;
+		}
+		UdonValue arr = positional[0];
+		std::vector<int> indices;
+		for (const auto& kv : arr.array_map->values)
+		{
+			try
+			{
+				indices.push_back(std::stoi(kv.first));
+			}
+			catch (...)
+			{
+			}
+		}
+		if (indices.empty())
+		{
+			out = make_none();
+			return true;
+		}
+		std::sort(indices.begin(), indices.end());
+		std::string first_key = std::to_string(indices.front());
+		auto it_first = arr.array_map->values.find(first_key);
+		out = (it_first != arr.array_map->values.end()) ? it_first->second : make_none();
+
+		std::unordered_map<std::string, UdonValue> new_values;
+		new_values.reserve(arr.array_map->values.size());
+		for (const auto& kv : arr.array_map->values)
+		{
+			try
+			{
+				(void)std::stoi(kv.first);
+			}
+			catch (...)
+			{
+				new_values[kv.first] = kv.second;
+			}
+		}
+		for (size_t i = 1; i < indices.size(); ++i)
+		{
+			std::string orig = std::to_string(indices[i]);
+			auto it = arr.array_map->values.find(orig);
+			if (it != arr.array_map->values.end())
+				new_values[std::to_string(static_cast<int>(i - 1))] = it->second;
+		}
+		arr.array_map->values.swap(new_values);
+		return true;
+	});
+
+	interp->register_function("unshift", "arr:array, UdonValue:any", "none", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	{
+		if (positional.size() != 2 || positional[0].type != UdonValue::Type::Array)
+		{
+			err.has_error = true;
+			err.opt_error_message = "unshift expects (array, UdonValue)";
+			return true;
+		}
+		UdonValue arr = positional[0];
+		std::vector<int> indices;
+		for (const auto& kv : arr.array_map->values)
+		{
+			try
+			{
+				indices.push_back(std::stoi(kv.first));
+			}
+			catch (...)
+			{
+			}
+		}
+		std::sort(indices.begin(), indices.end());
+
+		std::unordered_map<std::string, UdonValue> new_values;
+		new_values.reserve(arr.array_map->values.size() + 1);
+		for (const auto& kv : arr.array_map->values)
+		{
+			try
+			{
+				(void)std::stoi(kv.first);
+			}
+			catch (...)
+			{
+				new_values[kv.first] = kv.second;
+			}
+		}
+		new_values["0"] = positional[1];
+		for (size_t i = 0; i < indices.size(); ++i)
+		{
+			std::string orig = std::to_string(indices[i]);
+			auto it = arr.array_map->values.find(orig);
+			if (it != arr.array_map->values.end())
+				new_values[std::to_string(static_cast<int>(i + 1))] = it->second;
+		}
+		arr.array_map->values.swap(new_values);
+		out = make_none();
+		return true;
+	});
+
 	interp->register_function("time", "", "s32", [](UdonInterpreter*, const std::vector<UdonValue>&, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation&)
 	{
 		using namespace std::chrono;

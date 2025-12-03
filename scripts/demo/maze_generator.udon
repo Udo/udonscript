@@ -1,0 +1,113 @@
+// Demo: Maze generation with iterative depth-first search (recursive backtracker).
+
+function rand_int(min, max) {
+    return(min + floor(rand() * (max - min + 1)))
+}
+
+function make_grid(w, h, ch) {
+    var g = {}
+    for (var y = 0; y < h; y = y + 1) {
+        var row = {}
+        for (var x = 0; x < w; x = x + 1)
+            row[x] = ch
+        g[y] = row
+    }
+    return(g)
+}
+
+function set_tile(g, x, y, ch) {
+    var row = g[y]
+    row[x] = ch
+    g[y] = row
+}
+
+function get_tile(g, x, y) {
+    return(g[y][x])
+}
+
+function encode(x, y) {
+    return(to_string(x) + "," + to_string(y))
+}
+
+function shuffle_dirs() {
+    var dirs = {
+        0: {x: 0, y: -2},
+        1: {x: 2, y: 0},
+        2: {x: 0, y: 2},
+        3: {x: -2, y: 0}
+    }
+    // Fisher-Yates
+    for (var i = len(dirs) - 1; i > 0; i = i - 1) {
+        var j = rand_int(0, i)
+        var tmp = dirs[i]
+        dirs[i] = dirs[j]
+        dirs[j] = tmp
+    }
+    return(dirs)
+}
+
+function carve_maze(w, h) {
+    if (w % 2 == 0) w = w - 1
+    if (h % 2 == 0) h = h - 1
+    var grid = make_grid(w, h, "#")
+    var visited = {}
+    var stack = {}
+    var top = 0
+    var start = {x: 1, y: 1}
+    stack[top] = start
+    top = top + 1
+    visited[encode(start:x, start:y)] = true
+    set_tile(grid, start:x, start:y, " ")
+
+    while (top > 0) {
+        top = top - 1
+        var current = stack[top]
+        var moved = false
+        var dirs = shuffle_dirs()
+        for (var di = 0; di < len(dirs); di = di + 1) {
+            var d = dirs[di]
+            var nx = current:x + d:x
+            var ny = current:y + d:y
+            if (nx <= 0 || ny <= 0 || nx >= w - 1 || ny >= h - 1)
+                continue
+            var key = encode(nx, ny)
+            if (visited[key] == true)
+                continue
+            // Carve passage between cells (step is size 2).
+            var midx = to_s32(current:x + d:x / 2)
+            var midy = to_s32(current:y + d:y / 2)
+            set_tile(grid, midx, midy, " ")
+            set_tile(grid, nx, ny, " ")
+            visited[key] = true
+            stack[top] = current
+            top = top + 1
+            stack[top] = {x: nx, y: ny}
+            top = top + 1
+            moved = true
+            break
+        }
+        if (!moved) {
+            // dead end handled by pop loop
+        }
+    }
+    return(grid)
+}
+
+function render_grid(grid, w, h) {
+    for (var y = 0; y < h; y = y + 1) {
+        var row = grid[y]
+        var line = ""
+        for (var x = 0; x < w; x = x + 1) {
+            line = line + row[x]
+        }
+        print(line)
+    }
+}
+
+function main() {
+    var w = 39
+    var h = 21
+    var grid = carve_maze(w, h)
+    print("=== Maze ===")
+    render_grid(grid, w, h)
+}
