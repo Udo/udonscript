@@ -160,10 +160,6 @@ test_results/
 *.7z
 *.rar
 
-# Core dumps
-core
-core.*
-
 # Backup files
 *.bak
 *.backup
@@ -183,6 +179,4 @@ cscope.out
 cscope.in.out
 cscope.po.out
 
-# Documentation build artifacts
-doc/*.html
-doc/*.pdf
+
