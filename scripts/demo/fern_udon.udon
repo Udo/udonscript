@@ -25,18 +25,18 @@ function pick_transform(r) {
 
 function main() {
 	print("=== Fern IFS Demo ===")
-	var width = 60
-	var height = 30
+	var width = 80
+	var height = 40
 	var grid = {}
     var point = {0: 0.0, 1: 0.0}
     var encode = function(x, y) { return(to_string(x) + "," + to_string(y)) }
-    for (var i = 0; i < 5000; i = i + 1) {
+    for (var i = 0; i < 2*width*height; i = i + 1) {
         var choice = pick_transform(rand())
         point = transform(point, choice)
         var px = floor((point[0] + 3) / 6 * width)
         var py = height - 1 - floor(point[1] / 10 * height)
         if (px >= 0 && px < width && py >= 0 && py < height) {
-            grid[encode(px, py)] = "#"
+            grid[encode(px, py)] += 1
         }
     }
 
@@ -44,7 +44,7 @@ function main() {
 		var line = ""
 		for (var x = 0; x < width; x = x + 1) {
 			var key = encode(x, y)
-			if (grid[key] != none) line = line + "#"
+			if (grid[key] != none) line = line + chr(65+min(grid[key], 25))
 			else line = line + "."
         }
         print(line)
