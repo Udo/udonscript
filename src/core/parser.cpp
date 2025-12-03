@@ -698,14 +698,15 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		if (!parse_block(body, ctx))
 			return false;
 
+		size_t continue_target = body.size();
+		for (size_t ci : loop_stack.back().continue_jumps)
+			body[ci].operands[0].s32_value = static_cast<s32>(continue_target);
+
 		emit_load_var(body, idx_var);
 		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(1) });
 		emit(body, UdonInstruction::OpCode::ADD);
 		emit_store_var(body, idx_var);
 
-		size_t continue_target = body.size();
-		for (size_t ci : loop_stack.back().continue_jumps)
-			body[ci].operands[0].s32_value = static_cast<s32>(continue_target);
 		emit(body, UdonInstruction::OpCode::JUMP, { make_int(static_cast<s32>(cond_index)) });
 		size_t exit_index = end_scope(ctx, body);
 		body[jmp_false_index].operands[0].s32_value = static_cast<s32>(exit_index);

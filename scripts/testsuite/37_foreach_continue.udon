@@ -1,0 +1,12 @@
+// Test: foreach handles continue without freezing the iterator
+function main() {
+    var arr = {0: "a", 1: "b", 2: "c"}
+    var seen = 0
+    foreach (var k, v in arr) {
+        seen = seen + 1
+        if (v == "b") {
+            continue
+        }
+    }
+    print("count:", seen)
+}

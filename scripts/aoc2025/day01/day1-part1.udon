@@ -57,48 +57,48 @@ L99
 R14
 L82'.split("\n")
 
-function solve(instructions) {
-    var position = 50
-    var zero_count = 0
-    
-    for (var i = 0; i < len(instructions); i = i + 1) {
-        var inst = instructions[to_string(i)]
-        var direction = substr(inst, 0, 1)
-        var distance = to_s32(substr(inst, 1))
-        
-        if (direction == "L") {
-            position = (position - distance) % 100
-            if (position < 0) {
-                position = position + 100
-            }
-        } else if (direction == "R") {
-            position = (position + distance) % 100
-        }
-        
-        if (position == 0) {
-            zero_count = zero_count + 1
-        }
+var input_path = "scripts/aoc2025/day01/input.txt"
+var dial_size = 100
+var start_position = 50
+
+// Wrap dial position into [0, dial_size) even when subtracting past zero.
+function wrap_position(pos) {
+    var wrapped = pos % dial_size
+    if (wrapped < 0) wrapped = wrapped + dial_size
+    return wrapped
+}
+
+function count_zero_hits(lines) {
+    var pos = start_position
+    var zeros = 0
+    print("Lines to process:", lines.len())
+    foreach (var idx, raw in lines) {
+        var line = trim(raw)
+        if (line.len() == 0)
+            continue
+        var direction = line.substr(0, 1)
+        var distance = to_s32(line.substr(1))
+        if (direction == "L")
+            pos = wrap_position(pos - distance)
+        else if (direction == "R")
+            pos = wrap_position(pos + distance)
+        else
+            continue
+        if (pos == 0)
+            zeros = zeros + 1
     }
-    
-    return zero_count
+    return zeros
+}
+
+function solve(text) {
+    return count_zero_hits(text.split("\n"))
 }
 
 function main() {
-    print("=== Day 1: Safe Combination ===")
-    
-    // Test with example
-    var test_result = solve(test_instructions)
-    print("Test result: " + test_result + " (expected: 3)")
-    
-    // Solve with actual input
-    var input_lines = read_entire_file("scripts/aoc2025/day01/input.txt").split("\n")
-    var actual_instructions = []
-    foreach (var _, line in input_lines) {
-        if (len(trim(line)) != 0) {
-            actual_instructions.push(trim(line))
-        }
-    }
-    
-    var result = solve(actual_instructions)
-    print("Password (number of times dial points to 0): " + result)
+    var example = count_zero_hits(test_instructions)
+    print("Example check (expected 3):", example)
+
+    var input_text = read_entire_file(input_path)
+    var answer = solve(input_text)
+    print("Part 1 password:", answer)
 }

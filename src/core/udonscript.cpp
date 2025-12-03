@@ -273,26 +273,20 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 	u32 current_line = 0;
 	u32 current_col = 0;
 	size_t steps_since_gc = 0;
-	const size_t gc_step_budget = 1'000'000;
-	const auto gc_start_time = std::chrono::steady_clock::now();
-	auto gc_elapsed_ms = [&]() -> u64
-	{
-		return static_cast<u64>(std::chrono::duration_cast<std::chrono::milliseconds>(
-			std::chrono::steady_clock::now() - gc_start_time)
-				.count());
-	};
-	auto push_gc_root_and_collect = [&](const UdonValue& v)
-	{
-		interp->stack.push_back(v);
-		interp->collect_garbage(&env_stack, &eval_stack);
-		interp->stack.pop_back();
-	};
+	const size_t gc_step_budget = 10'000'000;
+	const s64 gc_time_budget_ms = 1000;
+	auto last_gc_time = std::chrono::steady_clock::now();
 	auto maybe_collect_periodic = [&]()
 	{
+		if(steps_since_gc % 1000 != 0)
+			return;
+		const auto now = std::chrono::steady_clock::now();
 		++steps_since_gc;
-		if (steps_since_gc >= gc_step_budget || gc_elapsed_ms() >= 100)
+		const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_gc_time).count();
+		if (steps_since_gc >= gc_step_budget || elapsed_ms >= gc_time_budget_ms)
 		{
 			steps_since_gc = 0;
+			last_gc_time = now;
 			interp->collect_garbage(&env_stack, &eval_stack, 10);
 		}
 	};
@@ -1056,7 +1050,6 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				{
 					return_value = make_none();
 				}
-				push_gc_root_and_collect(return_value);
 				return ok;
 			}
 			case UdonInstruction::OpCode::POP:
@@ -1069,7 +1062,6 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 			case UdonInstruction::OpCode::NOP:
 			case UdonInstruction::OpCode::HALT:
 				return_value = make_none();
-				push_gc_root_and_collect(return_value);
 				return ok;
 		}
 		maybe_collect_periodic();
@@ -1077,7 +1069,6 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 	}
 
 	return_value = make_none();
-	push_gc_root_and_collect(return_value);
 	return ok;
 }
 
