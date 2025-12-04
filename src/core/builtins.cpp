@@ -1442,12 +1442,12 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("$jsx", "template:string", "function", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("$jsx", "template:string, components:any?, options:any?", "function", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 	{
-		if (positional.size() != 1 || positional[0].type != UdonValue::Type::String)
+		if (positional.empty() || positional.size() > 3 || positional[0].type != UdonValue::Type::String)
 		{
 			err.has_error = true;
-			err.opt_error_message = "$jsx expects a single string template";
+			err.opt_error_message = "$jsx expects (template, [components], [options])";
 			return true;
 		}
 
@@ -1460,10 +1460,36 @@ void register_builtins(UdonInterpreter* interp)
 			return true;
 		}
 
+		auto convert_map = [](const UdonValue& v) -> std::unordered_map<std::string, UdonValue>
+		{
+			if (v.type != UdonValue::Type::Array || !v.array_map)
+				return {};
+			return v.array_map->values;
+		};
+
+		std::unordered_map<std::string, UdonValue> components = (positional.size() >= 2) ? convert_map(positional[1]) : std::unordered_map<std::string, UdonValue>{};
+		std::unordered_map<std::string, UdonValue> options = (positional.size() >= 3) ? convert_map(positional[2]) : std::unordered_map<std::string, UdonValue>{};
+
+		struct JsxClosureData
+		{
+			std::shared_ptr<JsxTemplate> tmpl;
+			std::unordered_map<std::string, UdonValue> components;
+			std::unordered_map<std::string, UdonValue> options;
+		};
+
+		auto data = std::make_shared<JsxClosureData>();
+		data->tmpl = tmpl;
+		data->components = components;
+		data->options = options;
+
 		auto* fn_obj = interp->allocate_function();
 		fn_obj->template_body = positional[0].string_value;
-		fn_obj->user_data = tmpl;
-		fn_obj->native_handler = [tmpl](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>& named, UdonValue& out, CodeLocation& inner_err)
+		fn_obj->user_data = data;
+		for (const auto& kv : components)
+			fn_obj->rooted_values.push_back(kv.second);
+		for (const auto& kv : options)
+			fn_obj->rooted_values.push_back(kv.second);
+		fn_obj->native_handler = [data](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>& named, UdonValue& out, CodeLocation& inner_err)
 		{
 			std::unordered_map<std::string, UdonValue> props;
 			if (!positional.empty() && positional[0].type == UdonValue::Type::Array && positional[0].array_map)
@@ -1471,8 +1497,14 @@ void register_builtins(UdonInterpreter* interp)
 			for (const auto& kv : named)
 				props[kv.first] = kv.second;
 
-			out = make_string(jsx_render(*tmpl, props));
-			(void)inner_err;
+			CodeLocation render_err{};
+			std::string rendered = jsx_render(*data->tmpl, props, data->components, data->options, interp, render_err);
+			if (render_err.has_error)
+			{
+				inner_err = render_err;
+				return true;
+			}
+			out = make_string(rendered);
 			return true;
 		};
 

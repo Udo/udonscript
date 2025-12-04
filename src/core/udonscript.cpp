@@ -32,6 +32,10 @@ bool handle_builtin(UdonInterpreter* interp,
 	return it->second.function(interp, positional, named, out, err);
 }
 
+struct FunctionBinding;
+static bool populate_from_managed(UdonInterpreter* interp, UdonValue::ManagedFunction* fn_obj, FunctionBinding& out_binding);
+static bool resolve_function_by_name(UdonInterpreter* interp, const std::string& name, UdonValue& out_fn);
+
 std::unordered_set<std::string> collect_top_level_globals(const std::vector<Token>& tokens)
 {
 	std::unordered_set<std::string> names;
@@ -689,119 +693,11 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				CodeLocation inner_err{};
 				inner_err.has_error = false;
 
-				struct FunctionBinding
-				{
-					std::shared_ptr<std::vector<UdonInstruction>> code;
-					std::shared_ptr<std::vector<std::string>> params;
-					std::string variadic_param;
-					UdonEnvironment* captured_env = nullptr;
-					size_t root_scope_size = 0;
-					std::shared_ptr<std::vector<s32>> param_slots;
-					s32 variadic_slot = -1;
-				};
-
-				auto populate_from_managed = [&](UdonValue::ManagedFunction* fn_obj, FunctionBinding& out) -> bool
-				{
-					if (!fn_obj)
-						return false;
-					if (!fn_obj->code_ptr || !fn_obj->param_ptr)
-					{
-						auto pit = interp->function_params.find(fn_obj->function_name);
-						if (pit != interp->function_params.end())
-							fn_obj->param_ptr = pit->second;
-						auto cit = interp->instructions.find(fn_obj->function_name);
-						if (cit != interp->instructions.end())
-							fn_obj->code_ptr = cit->second;
-					}
-					if (!fn_obj->code_ptr || !fn_obj->param_ptr)
-						return false;
-					if (fn_obj->root_scope_size == 0)
-					{
-						auto ss_it = interp->function_scope_sizes.find(fn_obj->function_name);
-						if (ss_it != interp->function_scope_sizes.end())
-							fn_obj->root_scope_size = ss_it->second;
-					}
-					if (!fn_obj->param_slots || fn_obj->param_slots->empty())
-					{
-						auto ps_it = interp->function_param_slots.find(fn_obj->function_name);
-						if (ps_it != interp->function_param_slots.end())
-							fn_obj->param_slots = ps_it->second;
-					}
-					if (fn_obj->variadic_slot < 0)
-					{
-						auto vs_it = interp->function_variadic_slot.find(fn_obj->function_name);
-						if (vs_it != interp->function_variadic_slot.end())
-							fn_obj->variadic_slot = vs_it->second;
-					}
-
-					out.code = fn_obj->code_ptr;
-					out.params = fn_obj->param_ptr;
-					out.variadic_param = fn_obj->variadic_param;
-					out.captured_env = fn_obj->captured_env;
-					out.root_scope_size = fn_obj->root_scope_size;
-					out.param_slots = fn_obj->param_slots;
-					out.variadic_slot = fn_obj->variadic_slot;
-					return true;
-				};
-
-				auto populate_from_name = [&](const std::string& name, FunctionBinding& out) -> bool
-				{
-					auto fn_it = interp->instructions.find(name);
-					if (fn_it == interp->instructions.end() || !fn_it->second)
-						return false;
-					out.code = fn_it->second;
-					auto pit = interp->function_params.find(name);
-					out.params = (pit != interp->function_params.end()) ? pit->second : std::shared_ptr<std::vector<std::string>>();
-					auto vit = interp->function_variadic.find(name);
-					out.variadic_param = (vit != interp->function_variadic.end()) ? vit->second : std::string();
-					auto ss_it = interp->function_scope_sizes.find(name);
-					out.root_scope_size = (ss_it != interp->function_scope_sizes.end()) ? ss_it->second : 0;
-					auto ps_it = interp->function_param_slots.find(name);
-					out.param_slots = (ps_it != interp->function_param_slots.end()) ? ps_it->second : std::shared_ptr<std::vector<s32>>();
-					auto vs_it = interp->function_variadic_slot.find(name);
-					out.variadic_slot = (vs_it != interp->function_variadic_slot.end()) ? vs_it->second : -1;
-					out.captured_env = nullptr;
-					return true;
-				};
-
-				auto invoke_binding = [&](const FunctionBinding& b) -> CodeLocation
-				{
-					CodeLocation binding_err{};
-					binding_err.has_error = false;
-					static const std::vector<s32> empty_slots;
-					if (!b.code || !b.params)
-					{
-						binding_err.has_error = true;
-						binding_err.opt_error_message = "Function not found";
-						return binding_err;
-					}
-					return execute_function(interp,
-						*b.code,
-						*b.params,
-						b.variadic_param,
-						b.captured_env,
-						b.root_scope_size,
-						b.param_slots ? *b.param_slots : empty_slots,
-						b.variadic_slot,
-						positional,
-						named,
-						call_result);
-				};
-
 				auto call_closure = [&](const UdonValue& fn_val) -> bool
 				{
 					if (fn_val.type != UdonValue::Type::Function || !fn_val.function)
 						return false;
-					if (fn_val.function->native_handler)
-						return fn_val.function->native_handler(interp, positional, named, call_result, inner_err);
-					FunctionBinding binding;
-					if (!populate_from_managed(fn_val.function, binding))
-					{
-						inner_err.has_error = true;
-						inner_err.opt_error_message = "Function '" + fn_val.function->function_name + "' not found";
-						return true;
-					}
-					CodeLocation nested = invoke_binding(binding);
+					CodeLocation nested = interp->invoke_function(fn_val, positional, named, call_result);
 					if (nested.has_error)
 						inner_err = nested;
 					return true;
@@ -857,10 +753,10 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 
 				if (!handled)
 				{
-					FunctionBinding binding;
-					if (populate_from_name(callee, binding))
+					UdonValue fn_val;
+					if (resolve_function_by_name(interp, callee, fn_val))
 					{
-						CodeLocation nested = invoke_binding(binding);
+						CodeLocation nested = interp->invoke_function(fn_val, positional, named, call_result);
 						if (nested.has_error)
 							return nested;
 						handled = true;
@@ -915,6 +811,142 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 UdonInterpreter::UdonInterpreter()
 {
 	register_builtins(this);
+}
+
+struct FunctionBinding
+{
+	std::shared_ptr<std::vector<UdonInstruction>> code;
+	std::shared_ptr<std::vector<std::string>> params;
+	std::string variadic_param;
+	UdonEnvironment* captured_env = nullptr;
+	size_t root_scope_size = 0;
+	std::shared_ptr<std::vector<s32>> param_slots;
+	s32 variadic_slot = -1;
+};
+
+static bool populate_from_managed(UdonInterpreter* interp, UdonValue::ManagedFunction* fn_obj, FunctionBinding& out_binding)
+{
+	if (!fn_obj)
+		return false;
+	if (!fn_obj->code_ptr || !fn_obj->param_ptr)
+	{
+		auto pit = interp->function_params.find(fn_obj->function_name);
+		if (pit != interp->function_params.end())
+			fn_obj->param_ptr = pit->second;
+		auto cit = interp->instructions.find(fn_obj->function_name);
+		if (cit != interp->instructions.end())
+			fn_obj->code_ptr = cit->second;
+	}
+	if (!fn_obj->code_ptr || !fn_obj->param_ptr)
+		return false;
+	if (fn_obj->root_scope_size == 0)
+	{
+		auto ss_it = interp->function_scope_sizes.find(fn_obj->function_name);
+		if (ss_it != interp->function_scope_sizes.end())
+			fn_obj->root_scope_size = ss_it->second;
+	}
+	if (!fn_obj->param_slots || fn_obj->param_slots->empty())
+	{
+		auto ps_it = interp->function_param_slots.find(fn_obj->function_name);
+		if (ps_it != interp->function_param_slots.end())
+			fn_obj->param_slots = ps_it->second;
+	}
+	if (fn_obj->variadic_slot < 0)
+	{
+		auto vs_it = interp->function_variadic_slot.find(fn_obj->function_name);
+		if (vs_it != interp->function_variadic_slot.end())
+			fn_obj->variadic_slot = vs_it->second;
+	}
+
+	out_binding.code = fn_obj->code_ptr;
+	out_binding.params = fn_obj->param_ptr;
+	out_binding.variadic_param = fn_obj->variadic_param;
+	out_binding.captured_env = fn_obj->captured_env;
+	out_binding.root_scope_size = fn_obj->root_scope_size;
+	out_binding.param_slots = fn_obj->param_slots;
+	out_binding.variadic_slot = fn_obj->variadic_slot;
+	return true;
+}
+
+static bool resolve_function_by_name(UdonInterpreter* interp, const std::string& name, UdonValue& out_fn)
+{
+	auto fn_it = interp->instructions.find(name);
+	if (fn_it == interp->instructions.end() || !fn_it->second)
+		return false;
+	UDON_ASSERT(fn_it->second != nullptr);
+
+	UdonValue fn_val;
+	fn_val.type = UdonValue::Type::Function;
+	fn_val.function = interp->allocate_function();
+	UDON_ASSERT(fn_val.function != nullptr);
+	fn_val.function->function_name = name;
+	fn_val.function->code_ptr = fn_it->second;
+	FunctionBinding tmp{};
+	populate_from_managed(interp, fn_val.function, tmp); // populate missing fields
+
+	auto pit = interp->function_params.find(name);
+	if (pit != interp->function_params.end())
+		fn_val.function->param_ptr = pit->second;
+	auto ps_it = interp->function_param_slots.find(name);
+	if (ps_it != interp->function_param_slots.end())
+		fn_val.function->param_slots = ps_it->second;
+	auto ss_it = interp->function_scope_sizes.find(name);
+	if (ss_it != interp->function_scope_sizes.end())
+		fn_val.function->root_scope_size = ss_it->second;
+	auto vs_it = interp->function_variadic_slot.find(name);
+	fn_val.function->variadic_slot = (vs_it != interp->function_variadic_slot.end()) ? vs_it->second : -1;
+	auto vit = interp->function_variadic.find(name);
+	if (vit != interp->function_variadic.end())
+		fn_val.function->variadic_param = vit->second;
+
+	out_fn = fn_val;
+	return true;
+}
+
+CodeLocation UdonInterpreter::invoke_function(const UdonValue& fn,
+	const std::vector<UdonValue>& positional,
+	const std::unordered_map<std::string, UdonValue>& named,
+	UdonValue& out)
+{
+	CodeLocation err{};
+	err.has_error = false;
+
+	if (fn.type != UdonValue::Type::Function || !fn.function)
+	{
+		err.has_error = true;
+		err.opt_error_message = "Value is not callable";
+		return err;
+	}
+	UDON_ASSERT(fn.function != nullptr);
+
+	if (fn.function->native_handler)
+	{
+		fn.function->native_handler(this, positional, named, out, err);
+		return err;
+	}
+
+	FunctionBinding binding;
+	if (!populate_from_managed(this, fn.function, binding))
+	{
+		err.has_error = true;
+		err.opt_error_message = "Function '" + fn.function->function_name + "' not found";
+		return err;
+	}
+	UDON_ASSERT(binding.code && binding.params);
+
+	static const std::vector<s32> empty_slots;
+	err = execute_function(this,
+		*binding.code,
+		*binding.params,
+		binding.variadic_param,
+		binding.captured_env,
+		binding.root_scope_size,
+		binding.param_slots ? *binding.param_slots : empty_slots,
+		binding.variadic_slot,
+		positional,
+		named,
+		out);
+	return err;
 }
 
 UdonInterpreter::~UdonInterpreter()
@@ -1769,6 +1801,8 @@ static void mark_value(const UdonValue& v)
 		if (v.function->marked)
 			return;
 		v.function->marked = true;
+		for (const auto& rooted : v.function->rooted_values)
+			mark_value(rooted);
 		mark_environment(v.function->captured_env);
 		return;
 	}

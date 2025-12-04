@@ -189,6 +189,10 @@ struct UdonInterpreter
 		const std::string& arg_signature,
 		const std::string& return_type,
 		UdonBuiltinFunction fn);
+	CodeLocation invoke_function(const UdonValue& fn,
+		const std::vector<UdonValue>& positional,
+		const std::unordered_map<std::string, UdonValue>& named,
+		UdonValue& out);
 	UdonEnvironment* allocate_environment(size_t slot_count, UdonEnvironment* parent);
 	UdonValue::ManagedArray* allocate_array();
 	UdonValue::ManagedFunction* allocate_function();
@@ -220,6 +224,7 @@ struct UdonValue::ManagedFunction
 	std::string variadic_param;
 	std::shared_ptr<void> user_data; // optional external payload for native closures
 	UdonBuiltinFunction native_handler; // optional native closure entrypoint
+	std::vector<UdonValue> rooted_values; // values that must stay alive with this function
 	bool marked = false;
 };
 

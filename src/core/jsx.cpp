@@ -140,7 +140,9 @@ namespace
 		return end && *end == '\0';
 	}
 
-	std::vector<std::pair<std::string, UdonValue>> ordered_entries(const std::unordered_map<std::string, UdonValue>& values)
+	using ValueMap = std::unordered_map<std::string, UdonValue>;
+
+	std::vector<std::pair<std::string, UdonValue>> ordered_entries(const ValueMap& values)
 	{
 		std::vector<std::pair<std::string, UdonValue>> ordered;
 		ordered.reserve(values.size());
@@ -670,15 +672,23 @@ namespace
 		}
 	}
 
-	std::string render_attributes(const std::vector<JsxAttribute>& attrs, const PropMap& props)
+	struct RenderContext
 	{
-		struct AttrEval
-		{
-			std::string name;
-			UdonValue value;
-			bool raw = false;
-		};
+		const ValueMap& components;
+		const ValueMap& options;
+		UdonInterpreter* interp = nullptr;
+		CodeLocation* err = nullptr;
+	};
 
+	struct AttrEval
+	{
+		std::string name;
+		UdonValue value;
+		bool raw = false;
+	};
+
+	std::vector<AttrEval> evaluate_attributes(const std::vector<JsxAttribute>& attrs, const PropMap& props)
+	{
 		std::vector<AttrEval> evaluated;
 		evaluated.reserve(attrs.size());
 
@@ -718,6 +728,12 @@ namespace
 			}
 		}
 
+		return evaluated;
+	}
+
+	std::string render_attributes(const std::vector<JsxAttribute>& attrs, const PropMap& props)
+	{
+		auto evaluated = evaluate_attributes(attrs, props);
 		std::unordered_map<std::string, size_t> last_index;
 		for (size_t i = 0; i < evaluated.size(); ++i)
 			last_index[evaluated[i].name] = i;
@@ -748,7 +764,40 @@ namespace
 		return ss.str();
 	}
 
-	std::string render_node(const JsxNode& node, const PropMap& props)
+	std::string render_node(const JsxNode& node,
+		const PropMap& props,
+		const RenderContext& ctx);
+
+	std::string render_children(const std::vector<JsxNode>& children,
+		const PropMap& props,
+		const RenderContext& ctx)
+	{
+		std::ostringstream ss;
+		for (const auto& child : children)
+		{
+			ss << render_node(child, props, ctx);
+			if (ctx.err && ctx.err->has_error)
+				return "";
+		}
+		return ss.str();
+	}
+
+	UdonValue make_object_value(UdonInterpreter* interp, const ValueMap& map)
+	{
+		UdonValue v{};
+		v.type = UdonValue::Type::Array;
+		v.array_map = interp ? interp->allocate_array() : nullptr;
+		if (v.array_map)
+		{
+			for (const auto& kv : map)
+				v.array_map->values[kv.first] = kv.second;
+		}
+		return v;
+	}
+
+	std::string render_node(const JsxNode& node,
+		const PropMap& props,
+		const RenderContext& ctx)
 	{
 		switch (node.type)
 		{
@@ -762,8 +811,59 @@ namespace
 				{
 					std::ostringstream ss;
 					for (const auto& child : node.children)
-						ss << render_node(child, props);
+						ss << render_node(child, props, ctx);
 					return ss.str();
+				}
+
+				{
+					auto comp_it = ctx.components.find(node.tag);
+					if (comp_it != ctx.components.end())
+					{
+						const UdonValue& comp_val = comp_it->second;
+						if (comp_val.type != UdonValue::Type::Function || !comp_val.function)
+						{
+							if (ctx.err)
+							{
+								ctx.err->has_error = true;
+								ctx.err->opt_error_message = "Component '" + node.tag + "' is not callable";
+							}
+							return "";
+						}
+
+						auto evaluated = evaluate_attributes(node.attributes, props);
+						ValueMap attr_map;
+						std::unordered_map<std::string, size_t> last_index;
+						for (size_t i = 0; i < evaluated.size(); ++i)
+							last_index[evaluated[i].name] = i;
+						for (size_t i = 0; i < evaluated.size(); ++i)
+						{
+							if (last_index[evaluated[i].name] != i)
+								continue;
+							const AttrEval& e = evaluated[i];
+							if (e.value.type == UdonValue::Type::None)
+								continue;
+							attr_map[e.name] = e.value;
+						}
+
+						std::string children_html = render_children(node.children, props, ctx);
+						if (ctx.err && ctx.err->has_error)
+							return "";
+
+						std::vector<UdonValue> args;
+						args.push_back(make_object_value(ctx.interp, attr_map));
+						args.push_back(make_string(children_html));
+						args.push_back(make_object_value(ctx.interp, ctx.options));
+
+						UdonValue component_out;
+						CodeLocation call_err = ctx.interp ? ctx.interp->invoke_function(comp_val, args, {}, component_out) : CodeLocation{};
+						if (ctx.err)
+							*ctx.err = call_err;
+						if (call_err.has_error)
+							return "";
+						if (component_out.type == UdonValue::Type::String)
+							return component_out.string_value;
+						return value_to_string(component_out);
+					}
 				}
 
 				std::ostringstream ss;
@@ -775,7 +875,11 @@ namespace
 				}
 				ss << ">";
 				for (const auto& child : node.children)
-					ss << render_node(child, props);
+				{
+					ss << render_node(child, props, ctx);
+					if (ctx.err && ctx.err->has_error)
+						return "";
+				}
 				ss << "</" << node.tag << ">";
 				return ss.str();
 			}
@@ -794,7 +898,14 @@ std::shared_ptr<JsxTemplate> jsx_compile(const std::string& source, std::string&
 	return tmpl;
 }
 
-std::string jsx_render(const JsxTemplate& tmpl, const std::unordered_map<std::string, UdonValue>& props)
+std::string jsx_render(const JsxTemplate& tmpl,
+	const std::unordered_map<std::string, UdonValue>& props,
+	const std::unordered_map<std::string, UdonValue>& components,
+	const std::unordered_map<std::string, UdonValue>& options,
+	UdonInterpreter* interp,
+	CodeLocation& err)
 {
-	return render_node(tmpl.root, props);
+	RenderContext ctx{ components, options, interp, &err };
+	err.has_error = false;
+	return render_node(tmpl.root, props, ctx);
 }
