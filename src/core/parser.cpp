@@ -691,6 +691,19 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 			emit(body, UdonInstruction::OpCode::CALL, get_val_ops);
 			emit_store_var(body, value_var);
 		}
+		else
+		{
+			// Overwrite single loop variable with the value for single-param foreach
+			emit_load_var(body, coll_var);
+			emit_load_var(body, key_var);
+			std::vector<UdonValue> get_val_ops;
+			get_val_ops.push_back(make_string("array_get"));
+			get_val_ops.push_back(make_int(2));
+			get_val_ops.push_back(make_string(""));
+			get_val_ops.push_back(make_string(""));
+			emit(body, UdonInstruction::OpCode::CALL, get_val_ops);
+			emit_store_var(body, key_var);
+		}
 
 		loop_stack.push_back({});
 		loop_stack.back().allow_continue = true;

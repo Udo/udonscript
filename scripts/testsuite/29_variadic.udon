@@ -1,7 +1,7 @@
 // Test: variadic functions
 function sum_all(values...) {
     var total = 0
-    foreach (var k, v in values) {
+    foreach (var v in values) {
         total = total + v
     }
     return(total)

@@ -7,10 +7,10 @@ function main() {
 	}
 	print("sum:", sum);
 	
-	// Test with just key
+	// Test with single var (values)
 	var count = 0;
-	foreach (var k in data) {
-		count = count + 1;
+	foreach (var v in data) {
+		count = count + v;
 	}
-	print("count:", count);
+	print("value_sum:", count);
 }

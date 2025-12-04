@@ -288,6 +288,9 @@ Iterate over array/map entries:
 foreach (key, value in collection) {
     // code
 }
+foreach (value in collection) {
+    // with one loop variable, you get the value directly
+}
 ```
 
 Example:
@@ -297,7 +300,11 @@ data.name = "Alice"
 data.age = 30
 
 foreach (key, value in data) {
-    print(key + ": " + to_string(value))
+    print(key .. ": " .. value)
+}
+
+foreach (value in "héllo") {
+    print(value) // h, é, l, l, o
 }
 ```
 
@@ -486,7 +493,10 @@ Use `foreach` to iterate:
 
 ```javascript
 foreach (key, value in arr) {
-    print(key + " = " + to_string(value))
+    print(key .. " = " .. value)
+}
+foreach (value in arr) {
+    // yields values directly; for strings this gives characters
 }
 ```
 
