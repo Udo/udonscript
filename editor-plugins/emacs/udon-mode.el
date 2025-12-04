@@ -6,7 +6,7 @@
   '("function" "return" "var" "if" "else" "while" "for" "foreach" "in"
     "break" "continue" "switch" "case" "default" "on"))
 
-(defvar udon-types '("vec2" "vec3" "vec4" "s32" "f32" "string" "bool" "array"))
+(defvar udon-types '("vec2" "vec3" "vec4" "int" "float" "Int" "Float" "s32" "f32" "string" "String" "bool" "Bool" "array" "Array" "any" "Any"))
 
 (defvar udon-font-lock-keywords
   `((,(regexp-opt udon-keywords 'symbols) . font-lock-keyword-face)

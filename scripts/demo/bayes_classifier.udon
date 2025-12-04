@@ -58,7 +58,7 @@ function classify(model, text) {
 	var class_keys = model:class_counts.keys()
 	var word_counts = model:word_counts
 	foreach (var _, label in class_keys) {
-		var prior = to_f32(model:class_counts[label]) / to_f32(model:total_docs)
+		var prior = to_float(model:class_counts[label]) / to_float(model:total_docs)
 		var bucket = word_counts[label]
 		var total_words = sum(bucket)
 		var logp = log(prior)
@@ -68,7 +68,7 @@ function classify(model, text) {
 			var count = bucket[tok]
 			if (count == none) count = 0
 			// Laplace smoothing
-			var prob = to_f32(count + 1) / to_f32(total_words + vocab_size)
+			var prob = to_float(count + 1) / to_float(total_words + vocab_size)
 			logp = logp + log(prob)
 		}
 		if (logp > best_logp) {

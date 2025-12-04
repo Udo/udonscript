@@ -51,7 +51,7 @@ size_t Parser::end_scope(FunctionContext& ctx, std::vector<UdonInstruction>& bod
 	if (frame.runtime_scope)
 	{
 		if (frame.enter_instr < body.size())
-			body[frame.enter_instr].operands[0].s32_value = static_cast<s32>(frame.scope->slots.size());
+			body[frame.enter_instr].operands[0].int_value = static_cast<s64>(frame.scope->slots.size());
 		exit_index = body.size();
 		emit(body, UdonInstruction::OpCode::EXIT_SCOPE);
 	}
@@ -453,7 +453,7 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		size_t jmp_end_index = body.size();
 		emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
 
-		body[jmp_false_index].operands[0].s32_value = static_cast<s32>(body.size());
+		body[jmp_false_index].operands[0].int_value = static_cast<s64>(body.size());
 
 		skip_semicolons();
 		if (match_keyword("else"))
@@ -461,7 +461,7 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 			if (!parse_statement_or_block(body, ctx, false))
 				return false;
 		}
-		body[jmp_end_index].operands[0].s32_value = static_cast<s32>(body.size());
+		body[jmp_end_index].operands[0].int_value = static_cast<s64>(body.size());
 		end_scope(ctx, body);
 		return true;
 	}
@@ -486,12 +486,12 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		if (!parse_statement_or_block(body, ctx, false))
 			return false;
 		for (size_t ci : loop_stack.back().continue_jumps)
-			body[ci].operands[0].s32_value = static_cast<s32>(cond_index);
-		emit(body, UdonInstruction::OpCode::JUMP, { make_int(static_cast<s32>(cond_index)) });
+			body[ci].operands[0].int_value = static_cast<s64>(cond_index);
+		emit(body, UdonInstruction::OpCode::JUMP, { make_int(static_cast<s64>(cond_index)) });
 		size_t exit_index = end_scope(ctx, body);
-		body[jmp_false_index].operands[0].s32_value = static_cast<s32>(exit_index);
+		body[jmp_false_index].operands[0].int_value = static_cast<s64>(exit_index);
 		for (size_t bi : loop_stack.back().break_jumps)
-			body[bi].operands[0].s32_value = static_cast<s32>(exit_index);
+			body[bi].operands[0].int_value = static_cast<s64>(exit_index);
 		loop_stack.pop_back();
 		return true;
 	}
@@ -573,13 +573,13 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 			return false;
 		size_t continue_target = body.size();
 		for (size_t ci : loop_stack.back().continue_jumps)
-			body[ci].operands[0].s32_value = static_cast<s32>(continue_target);
+			body[ci].operands[0].int_value = static_cast<s64>(continue_target);
 		body.insert(body.end(), increment_code.begin(), increment_code.end());
-		emit(body, UdonInstruction::OpCode::JUMP, { make_int(static_cast<s32>(cond_index)) });
+		emit(body, UdonInstruction::OpCode::JUMP, { make_int(static_cast<s64>(cond_index)) });
 		size_t exit_index = end_scope(ctx, body);
-		body[jmp_false_index].operands[0].s32_value = static_cast<s32>(exit_index);
+		body[jmp_false_index].operands[0].int_value = static_cast<s64>(exit_index);
 		for (size_t bi : loop_stack.back().break_jumps)
-			body[bi].operands[0].s32_value = static_cast<s32>(exit_index);
+			body[bi].operands[0].int_value = static_cast<s64>(exit_index);
 		loop_stack.pop_back();
 		return true;
 	}
@@ -700,18 +700,18 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 
 		size_t continue_target = body.size();
 		for (size_t ci : loop_stack.back().continue_jumps)
-			body[ci].operands[0].s32_value = static_cast<s32>(continue_target);
+			body[ci].operands[0].int_value = static_cast<s64>(continue_target);
 
 		emit_load_var(body, idx_var);
 		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(1) });
 		emit(body, UdonInstruction::OpCode::ADD);
 		emit_store_var(body, idx_var);
 
-		emit(body, UdonInstruction::OpCode::JUMP, { make_int(static_cast<s32>(cond_index)) });
+		emit(body, UdonInstruction::OpCode::JUMP, { make_int(static_cast<s64>(cond_index)) });
 		size_t exit_index = end_scope(ctx, body);
-		body[jmp_false_index].operands[0].s32_value = static_cast<s32>(exit_index);
+		body[jmp_false_index].operands[0].int_value = static_cast<s64>(exit_index);
 		for (size_t bi : loop_stack.back().break_jumps)
-			body[bi].operands[0].s32_value = static_cast<s32>(exit_index);
+			body[bi].operands[0].int_value = static_cast<s64>(exit_index);
 		loop_stack.pop_back();
 		return true;
 	}
@@ -751,9 +751,8 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 				if (peek().type == Token::Type::Number)
 				{
 					const std::string num_text = advance().text;
-					case_val = (num_text.find('.') != std::string::npos)
-								   ? make_float(static_cast<f32>(std::stof(num_text)))
-								   : make_int(static_cast<s32>(std::stoi(num_text)));
+					const bool is_float = num_text.find('.') != std::string::npos || num_text.find('e') != std::string::npos || num_text.find('E') != std::string::npos;
+					case_val = is_float ? make_float(std::stod(num_text)) : make_int(std::stoll(num_text));
 				}
 				else if (peek().type == Token::Type::String)
 				{
@@ -791,7 +790,7 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 
 				size_t end_jump = body.size();
 				emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
-				body[jz_index].operands[0].s32_value = static_cast<s32>(body.size());
+				body[jz_index].operands[0].int_value = static_cast<s64>(body.size());
 				loop_stack.back().break_jumps.push_back(end_jump);
 			}
 			else if (match_keyword("default"))
@@ -821,7 +820,7 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 			return false;
 		size_t exit_index = end_scope(ctx, body);
 		for (size_t bi : loop_stack.back().break_jumps)
-			body[bi].operands[0].s32_value = static_cast<s32>(exit_index);
+			body[bi].operands[0].int_value = static_cast<s64>(exit_index);
 		loop_stack.pop_back();
 		return true;
 	}
@@ -857,7 +856,7 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		{
 			std::vector<UdonValue> ops;
 			ops.push_back(make_string("array"));
-			ops.push_back(make_int(static_cast<s32>(value_count)));
+			ops.push_back(make_int(static_cast<s64>(value_count)));
 			for (size_t i = 0; i < value_count; ++i)
 				ops.push_back(make_string(""));
 			emit(body, UdonInstruction::OpCode::CALL, ops);
@@ -922,14 +921,14 @@ bool Parser::parse_ternary(std::vector<UdonInstruction>& body, FunctionContext& 
 		if (!expect_symbol(":", "Expected ':' in ternary expression"))
 			return false;
 		size_t else_index = body.size();
-		body[jmp_false].operands[0].s32_value = static_cast<s32>(else_index);
+		body[jmp_false].operands[0].int_value = static_cast<s64>(else_index);
 		prev_stop = stop_at_colon;
 		stop_at_colon = true;
 		if (!parse_expression(body, ctx))
 			return false;
 		stop_at_colon = prev_stop;
 		size_t end_index = body.size();
-		body[jmp_end].operands[0].s32_value = static_cast<s32>(end_index);
+		body[jmp_end].operands[0].int_value = static_cast<s64>(end_index);
 	}
 	return true;
 }
@@ -946,11 +945,11 @@ bool Parser::parse_or(std::vector<UdonInstruction>& body, FunctionContext& ctx)
 		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_bool(true) });
 		size_t jmp_end = body.size();
 		emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
-		body[jz_index].operands[0].s32_value = static_cast<s32>(body.size());
+		body[jz_index].operands[0].int_value = static_cast<s64>(body.size());
 		if (!parse_and(body, ctx))
 			return false;
 		emit(body, UdonInstruction::OpCode::TO_BOOL);
-		body[jmp_end].operands[0].s32_value = static_cast<s32>(body.size());
+		body[jmp_end].operands[0].int_value = static_cast<s64>(body.size());
 	}
 	return true;
 }
@@ -969,9 +968,9 @@ bool Parser::parse_and(std::vector<UdonInstruction>& body, FunctionContext& ctx)
 		emit(body, UdonInstruction::OpCode::TO_BOOL);
 		size_t jmp_end = body.size();
 		emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
-		body[jz_index].operands[0].s32_value = static_cast<s32>(body.size());
+		body[jz_index].operands[0].int_value = static_cast<s64>(body.size());
 		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_bool(false) });
-		body[jmp_end].operands[0].s32_value = static_cast<s32>(body.size());
+		body[jmp_end].operands[0].int_value = static_cast<s64>(body.size());
 	}
 	return true;
 }
@@ -1055,7 +1054,7 @@ bool Parser::parse_assignment_or_expression(std::vector<UdonInstruction>& body, 
 			emit_load_var(body, tmp_var);
 			if (use_index)
 			{
-				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(static_cast<s32>(idx)) });
+				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(static_cast<s64>(idx)) });
 				emit(body, UdonInstruction::OpCode::GET_PROP, { make_string("[index]") });
 			}
 		};
@@ -1607,7 +1606,7 @@ bool Parser::parse_postfix(std::vector<UdonInstruction>& body, FunctionContext& 
 			}
 			std::vector<UdonValue> operands;
 			operands.push_back(make_string("")); // empty callee signals dynamic call using callable on stack
-			operands.push_back(make_int(static_cast<s32>(arg_count)));
+			operands.push_back(make_int(static_cast<s64>(arg_count)));
 			emit(body, UdonInstruction::OpCode::CALL, operands);
 			continue;
 		}
@@ -1647,7 +1646,7 @@ bool Parser::parse_method_postfix(std::vector<UdonInstruction>& body, FunctionCo
 	}
 	std::vector<UdonValue> operands;
 	operands.push_back(make_string(member));
-	operands.push_back(make_int(static_cast<s32>(arg_count)));
+	operands.push_back(make_int(static_cast<s64>(arg_count)));
 	for (const auto& n : arg_names)
 		operands.push_back(make_string(n));
 	emit(body, UdonInstruction::OpCode::CALL, operands);
@@ -1757,10 +1756,11 @@ bool Parser::parse_primary(std::vector<UdonInstruction>& body, FunctionContext& 
 	if (peek().type == Token::Type::Number)
 	{
 		const std::string num_text = advance().text;
-		if (num_text.find('.') != std::string::npos)
-			emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_float(static_cast<f32>(std::stof(num_text))) });
+		const bool is_float = num_text.find('.') != std::string::npos || num_text.find('e') != std::string::npos || num_text.find('E') != std::string::npos;
+		if (is_float)
+			emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_float(std::stod(num_text)) });
 		else
-			emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(static_cast<s32>(std::stoi(num_text))) });
+			emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(std::stoll(num_text)) });
 		return parse_postfix(body, ctx);
 	}
 
@@ -1810,7 +1810,7 @@ bool Parser::parse_primary(std::vector<UdonInstruction>& body, FunctionContext& 
 			{
 				operands.push_back(make_string(ident.text));
 			}
-			operands.push_back(make_int(static_cast<s32>(arg_count)));
+			operands.push_back(make_int(static_cast<s64>(arg_count)));
 			if (!dynamic_call)
 			{
 				for (const auto& n : arg_names)
@@ -1937,8 +1937,8 @@ bool Parser::parse_primary(std::vector<UdonInstruction>& body, FunctionContext& 
 				{
 					try
 					{
-						int key_num = std::stoi(key);
-						if (key_num + 1 > static_cast<int>(auto_index))
+						const s64 key_num = std::stoll(key);
+						if (key_num >= 0 && static_cast<size_t>(key_num + 1) > auto_index)
 							auto_index = static_cast<size_t>(key_num + 1);
 					}
 					catch (...)
@@ -1956,11 +1956,11 @@ bool Parser::parse_primary(std::vector<UdonInstruction>& body, FunctionContext& 
 		for (const auto& k : keys)
 			emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_string(k) });
 
-		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(static_cast<s32>(keys.size())) });
+		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(static_cast<s64>(keys.size())) });
 
 		std::vector<UdonValue> ops;
 		ops.push_back(make_string("__object_literal"));
-		ops.push_back(make_int(static_cast<s32>(keys.size() * 2 + 1))); // total arg count
+		ops.push_back(make_int(static_cast<s64>(keys.size() * 2 + 1))); // total arg count
 
 		emit(body, UdonInstruction::OpCode::CALL, ops);
 		return parse_postfix(body, ctx);

@@ -55,8 +55,8 @@ function render(instructions) {
 	for (var k = 0; k < keys_arr.len(); k = k + 1) {
 		var key = keys_arr[k]
 		var parts = key.split(",")
-		var px = to_s32(parts[0])
-		var py = to_s32(parts[1])
+		var px = to_int(parts[0])
+		var py = to_int(parts[1])
 		if (px < minx) minx = px
 		if (px > maxx) maxx = px
         if (py < miny) miny = py

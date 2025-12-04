@@ -1,9 +1,9 @@
-S32
-F32
+Int
+Float
 String
 Bool
 Bool
 Array
-S32
-F32
+Int
+Float
 String

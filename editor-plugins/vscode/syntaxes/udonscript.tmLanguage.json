@@ -73,7 +73,7 @@
     },
     "types": {
       "patterns": [
-        { "name": "storage.type.udon", "match": "\\b(vec2|vec3|vec4|s32|f32|string|bool|array)\\b" }
+        { "name": "storage.type.udon", "match": "\\b(vec2|vec3|vec4|int|float|Int|Float|s32|f32|string|String|bool|Bool|array|Array|any|Any)\\b" }
       ]
     },
     "functions": {

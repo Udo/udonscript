@@ -16,7 +16,7 @@ function add(a, b) {
 }
 
 // With type annotations
-function multiply(a: f32, b: f32) -> f32 {
+function multiply(a: Float, b: Float) -> Float {
     return a * b
 }
 ```
@@ -112,8 +112,8 @@ foreach (key, value in data) {
 - `replace(s, old, new, [count])` - Replace substrings
 
 ### Type Conversion
-- `to_s32(value)` - Convert to integer
-- `to_f32(value)` - Convert to float
+- `to_int(value)` - Convert to integer
+- `to_float(value)` - Convert to float
 - `to_string(value)` - Convert to string
 - `to_bool(value)` - Convert to boolean
 
@@ -149,8 +149,8 @@ foreach (key, value in data) {
 ## Data Types
 - **None** - No value
 - **Bool** - `true` or `false`
-- **S32** - 32-bit integer
-- **F32** - 32-bit float
+- **Int** - 64-bit integer
+- **Float** - 64-bit float
 - **String** - Text string
 - **Vector2** - 2D vector
 - **Vector3** - 3D vector

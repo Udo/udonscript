@@ -2,10 +2,10 @@
 
 function main() {
     var ns = dl_open("libm.so.6")
-    print("pow:", ns:call("pow(f32,f32):f32", 2, 3))
-    print("sqrt:", ns:call("sqrt(f32):f32", 9))
-    print("fmax:", ns:call("fmax(f32,f32):f32", 2, 5))
-    print("cos:", ns:call("cos(f32):f32", 0))
-    print("atan2:", ns:call("atan2(f32,f32):f32", 0, 1))
+    print("pow:", ns:call("pow(float,float):float", 2, 3))
+    print("sqrt:", ns:call("sqrt(float):float", 9))
+    print("fmax:", ns:call("fmax(float,float):float", 2, 5))
+    print("cos:", ns:call("cos(float):float", 0))
+    print("atan2:", ns:call("atan2(float,float):float", 0, 1))
     ns:close()
 }

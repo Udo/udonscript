@@ -74,8 +74,8 @@ function carve_maze(w, h) {
             if (visited[key] == true)
                 continue
             // Carve passage between cells (step is size 2).
-            var midx = to_s32(current:x + d:x / 2)
-            var midy = to_s32(current:y + d:y / 2)
+            var midx = to_int(current:x + d:x / 2)
+            var midy = to_int(current:y + d:y / 2)
             set_tile(grid, midx, midy, " ")
             set_tile(grid, nx, ny, " ")
             visited[key] = true

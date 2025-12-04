@@ -96,8 +96,8 @@ UdonScript supports the following data types:
 
 - **`None`** - Represents absence of value (similar to null/nil)
 - **`Bool`** - Boolean value (`true` or `false`)
-- **`S32`** - 32-bit signed integer
-- **`F32`** - 32-bit floating point
+- **`Int`** - 64-bit signed integer
+- **`Float`** - 64-bit floating point
 - **`String`** - Text string
 
 ### Vector Types
@@ -131,9 +131,10 @@ var position = vec3(0.0, 1.0, 0.0)
 While UdonScript is dynamically typed, you can optionally specify types for documentation:
 
 ```javascript
-var count: s32 = 0
-var ratio: f32 = 0.5
-var message: string = "Hello"
+var count: Int = 0
+var ratio: Float = 0.5
+var message: String = "Hello"
+```
 
 Multiple variables can be declared and assigned from a multi-value expression (commas return arrays):
 
@@ -141,7 +142,6 @@ Multiple variables can be declared and assigned from a multi-value expression (c
 var x, y = pair(5)   // pair returns (5, 6)
 var _, only = pair(3) // '_' ignores a slot
 x, y = pair(10)      // destructuring assignment
-```
 ```
 
 ### Global Variables
@@ -359,10 +359,16 @@ function multipleParams(a, b, c) {
 Parameters and return types can be annotated:
 
 ```javascript
-function add(a: s32, b: s32) -> s32 {
+function add(a: Int, b: Int) -> Int {
     return(a + b)
 }
 ```
+
+### Context Info
+
+The `context` global contains meta information about the script.
+
+`context:comment_lines` contains all comments in the script.
 
 ### Anonymous Functions (Closures)
 
@@ -517,7 +523,7 @@ x = vec3(1, 2, 3)  // x is now a vector
 Use the type conversion functions to check and convert types:
 
 ```javascript
-var value = to_s32("42")     // Convert to integer
+var value = to_int("42")     // Convert to integer
 var text = to_string(123)    // Convert to string
 var flag = to_bool("true")   // Convert to boolean
 ```
@@ -671,5 +677,5 @@ primary         → NUMBER | STRING | "true" | "false" | "none"
                 | IDENTIFIER | "(" expression ")"
 arguments       → expression ( "," expression )*
 parameters      → IDENTIFIER ( ":" type )? ( "," IDENTIFIER ( ":" type )? )*
-type            → "s32" | "f32" | "bool" | "string" | "vec2" | "vec3" | "vec4" | "any"
+type            → "Int" | "Float" | "Bool" | "String" | "vec2" | "vec3" | "vec4" | "any"
 ```

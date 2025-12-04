@@ -24,11 +24,20 @@
       <item>vec2</item>
       <item>vec3</item>
       <item>vec4</item>
+      <item>int</item>
+      <item>float</item>
+      <item>Int</item>
+      <item>Float</item>
       <item>s32</item>
       <item>f32</item>
       <item>string</item>
+      <item>String</item>
       <item>bool</item>
+      <item>Bool</item>
       <item>array</item>
+      <item>Array</item>
+      <item>any</item>
+      <item>Any</item>
     </list>
     <contexts>
       <context name="Normal" attribute="Normal Text" lineEndContext="#stay">

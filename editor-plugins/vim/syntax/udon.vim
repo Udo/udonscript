@@ -6,7 +6,7 @@ endif
 
 syn keyword udonKeyword function return var if else while for foreach in break continue switch case default on
 syn keyword udonBoolean true false
-syn keyword udonType vec2 vec3 vec4 s32 f32 string bool array
+syn keyword udonType vec2 vec3 vec4 int float Int Float s32 f32 string String bool Bool array Array any Any
 
 syn match udonNumber /\v\<\d+(\.\d+)?\>/
 

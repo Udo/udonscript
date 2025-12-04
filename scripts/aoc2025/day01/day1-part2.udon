@@ -78,7 +78,7 @@ function count_zero_hits(lines) {
         if (line.len() == 0)
             continue
         var direction = line.substr(0, 1)
-        var distance = to_s32(line.substr(1))
+        var distance = to_int(line.substr(1))
         zeros = zeros + zero_hits_in_move(pos, direction, distance)
         if (direction == "L")
             pos = wrap_position(pos - distance)

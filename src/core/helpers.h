@@ -2,8 +2,8 @@
 #include "udonscript.h"
 
 UdonValue make_none();
-UdonValue make_int(s32 v);
-UdonValue make_float(f32 v);
+UdonValue make_int(s64 v);
+UdonValue make_float(f64 v);
 UdonValue make_bool(bool v);
 UdonValue make_string(const std::string& s);
 UdonValue make_array();

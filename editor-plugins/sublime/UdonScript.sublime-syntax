@@ -60,7 +60,7 @@ contexts:
       scope: constant.language.boolean.udon
 
   types:
-    - match: \b(vec2|vec3|vec4|s32|f32|string|bool|array)\b
+    - match: \b(vec2|vec3|vec4|int|float|Int|Float|s32|f32|string|String|bool|Bool|array|Array|any|Any)\b
       scope: storage.type.udon
 
   numbers:

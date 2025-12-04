@@ -64,7 +64,7 @@ function golden_ratio_approximation(iterations) {
     var fn = fibonacci_iterative(iterations)
     var fn_minus_1 = fibonacci_iterative(iterations - 1)
     
-    return to_f32(fn) / to_f32(fn_minus_1)
+    return to_float(fn) / to_float(fn_minus_1)
 }
 
 function main() {

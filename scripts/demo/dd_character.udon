@@ -15,7 +15,7 @@ function roll_4d6_drop_lowest() {
 }
 
 function ability_mod(score) {
-	return(to_s32(floor((score - 10) / 2)))
+	return(to_int(floor((score - 10) / 2)))
 }
 
 function pick(list) {

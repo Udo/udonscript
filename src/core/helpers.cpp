@@ -8,19 +8,19 @@ UdonValue make_none()
 	return UdonValue();
 }
 
-UdonValue make_int(s32 v)
+UdonValue make_int(s64 v)
 {
 	UdonValue val{};
-	val.type = UdonValue::Type::S32;
-	val.s32_value = v;
+	val.type = UdonValue::Type::Int;
+	val.int_value = v;
 	return val;
 }
 
-UdonValue make_float(f32 v)
+UdonValue make_float(f64 v)
 {
 	UdonValue val{};
-	val.type = UdonValue::Type::F32;
-	val.f32_value = v;
+	val.type = UdonValue::Type::Float;
+	val.float_value = v;
 	return val;
 }
 
@@ -28,7 +28,7 @@ UdonValue make_bool(bool v)
 {
 	UdonValue val{};
 	val.type = UdonValue::Type::Bool;
-	val.s32_value = v ? 1 : 0;
+	val.int_value = v ? 1 : 0;
 	return val;
 }
 
@@ -63,12 +63,12 @@ std::string key_from_value(const UdonValue& v)
 {
 	switch (v.type)
 	{
-		case UdonValue::Type::S32:
-			return std::to_string(v.s32_value);
-		case UdonValue::Type::F32:
+		case UdonValue::Type::Int:
+			return std::to_string(v.int_value);
+		case UdonValue::Type::Float:
 		{
 			std::ostringstream ss;
-			ss << v.f32_value;
+			ss << v.float_value;
 			return ss.str();
 		}
 		case UdonValue::Type::String:
@@ -83,14 +83,14 @@ std::string value_to_string(const UdonValue& v)
 	std::ostringstream ss;
 	switch (v.type)
 	{
-		case UdonValue::Type::S32:
-			ss << v.s32_value;
+		case UdonValue::Type::Int:
+			ss << v.int_value;
 			break;
-		case UdonValue::Type::F32:
-			ss << v.f32_value;
+		case UdonValue::Type::Float:
+			ss << v.float_value;
 			break;
 		case UdonValue::Type::Bool:
-			ss << (v.s32_value ? "true" : "false");
+			ss << (v.int_value ? "true" : "false");
 			break;
 		case UdonValue::Type::String:
 			ss << v.string_value;
@@ -131,22 +131,22 @@ std::string value_to_string(const UdonValue& v)
 
 bool is_numeric(const UdonValue& v)
 {
-	return v.type == UdonValue::Type::S32 || v.type == UdonValue::Type::F32 || v.type == UdonValue::Type::Bool || v.type == UdonValue::Type::None;
+	return v.type == UdonValue::Type::Int || v.type == UdonValue::Type::Float || v.type == UdonValue::Type::Bool || v.type == UdonValue::Type::None;
 }
 
 bool is_integer_type(const UdonValue& v)
 {
-	return v.type == UdonValue::Type::S32 || v.type == UdonValue::Type::Bool;
+	return v.type == UdonValue::Type::Int || v.type == UdonValue::Type::Bool;
 }
 
 std::string value_type_name(const UdonValue& v)
 {
 	switch (v.type)
 	{
-		case UdonValue::Type::S32:
-			return "S32";
-		case UdonValue::Type::F32:
-			return "F32";
+		case UdonValue::Type::Int:
+			return "Int";
+		case UdonValue::Type::Float:
+			return "Float";
 		case UdonValue::Type::Bool:
 			return "Bool";
 		case UdonValue::Type::String:
@@ -155,33 +155,35 @@ std::string value_type_name(const UdonValue& v)
 			return "Array";
 		case UdonValue::Type::Function:
 			return "Function";
+		case UdonValue::Type::None:
+			return "None";
 		default:
 			return "Any";
 	}
 }
 double as_number(const UdonValue& v)
 {
-	if (v.type == UdonValue::Type::S32)
-		return static_cast<double>(v.s32_value);
-	if (v.type == UdonValue::Type::F32)
-		return static_cast<double>(v.f32_value);
+	if (v.type == UdonValue::Type::Int)
+		return static_cast<double>(v.int_value);
+	if (v.type == UdonValue::Type::Float)
+		return static_cast<double>(v.float_value);
 	if (v.type == UdonValue::Type::Bool)
-		return static_cast<double>(v.s32_value);
+		return static_cast<double>(v.int_value);
 	return 0.0;
 }
 
 UdonValue wrap_number(double d, const UdonValue& lhs, const UdonValue& rhs)
 {
 	return (is_integer_type(lhs) && is_integer_type(rhs))
-			   ? make_int(static_cast<s32>(d))
-			   : make_float(static_cast<f32>(d));
+			   ? make_int(static_cast<s64>(d))
+			   : make_float(static_cast<f64>(d));
 }
 
 UdonValue wrap_number_unary(double d, const UdonValue& src)
 {
 	return is_integer_type(src)
-			   ? make_int(static_cast<s32>(d))
-			   : make_float(static_cast<f32>(d));
+			   ? make_int(static_cast<s64>(d))
+			   : make_float(static_cast<f64>(d));
 }
 
 bool binary_numeric(const UdonValue& lhs, const UdonValue& rhs, double (*fn)(double, double), UdonValue& out)
@@ -213,7 +215,10 @@ bool equal_values(const UdonValue& a, const UdonValue& b, UdonValue& out)
 {
 	if (is_numeric(a) && is_numeric(b))
 	{
-		out = make_bool(as_number(a) == as_number(b));
+		if (is_integer_type(a) && is_integer_type(b))
+			out = make_bool(a.int_value == b.int_value);
+		else
+			out = make_bool(as_number(a) == as_number(b));
 		return true;
 	}
 	if (a.type == UdonValue::Type::String || b.type == UdonValue::Type::String)
@@ -229,6 +234,32 @@ bool compare_values(const UdonValue& a, const UdonValue& b, UdonInstruction::OpC
 {
 	if (!is_numeric(a) || !is_numeric(b))
 		return false;
+
+	if (is_integer_type(a) && is_integer_type(b))
+	{
+		const s64 lhs = a.int_value;
+		const s64 rhs = b.int_value;
+		bool result = false;
+		switch (op)
+		{
+			case UdonInstruction::OpCode::LT:
+				result = lhs < rhs;
+				break;
+			case UdonInstruction::OpCode::LTE:
+				result = lhs <= rhs;
+				break;
+			case UdonInstruction::OpCode::GT:
+				result = lhs > rhs;
+				break;
+			case UdonInstruction::OpCode::GTE:
+				result = lhs >= rhs;
+				break;
+			default:
+				return false;
+		}
+		out = make_bool(result);
+		return true;
+	}
 
 	const double lhs = as_number(a);
 	const double rhs = as_number(b);
@@ -260,12 +291,12 @@ bool is_truthy(const UdonValue& v)
 {
 	switch (v.type)
 	{
-		case UdonValue::Type::S32:
-			return v.s32_value != 0;
-		case UdonValue::Type::F32:
-			return v.f32_value != 0.0f;
+		case UdonValue::Type::Int:
+			return v.int_value != 0;
+		case UdonValue::Type::Float:
+			return v.float_value != 0.0;
 		case UdonValue::Type::Bool:
-			return v.s32_value != 0;
+			return v.int_value != 0;
 		case UdonValue::Type::String:
 			return !v.string_value.empty();
 		case UdonValue::Type::Array:
@@ -284,6 +315,11 @@ bool add_values(const UdonValue& lhs, const UdonValue& rhs, UdonValue& out)
 		out = make_string(value_to_string(lhs) + value_to_string(rhs));
 		return true;
 	}
+	if (is_integer_type(lhs) && is_integer_type(rhs))
+	{
+		out = make_int(lhs.int_value + rhs.int_value);
+		return true;
+	}
 	return binary_numeric(lhs, rhs, [](double a, double b)
 	{ return a + b; },
 		out);
@@ -291,6 +327,11 @@ bool add_values(const UdonValue& lhs, const UdonValue& rhs, UdonValue& out)
 
 bool sub_values(const UdonValue& lhs, const UdonValue& rhs, UdonValue& out)
 {
+	if (is_integer_type(lhs) && is_integer_type(rhs))
+	{
+		out = make_int(lhs.int_value - rhs.int_value);
+		return true;
+	}
 	return binary_numeric(lhs, rhs, [](double a, double b)
 	{ return a - b; },
 		out);
@@ -298,6 +339,11 @@ bool sub_values(const UdonValue& lhs, const UdonValue& rhs, UdonValue& out)
 
 bool mul_values(const UdonValue& lhs, const UdonValue& rhs, UdonValue& out)
 {
+	if (is_integer_type(lhs) && is_integer_type(rhs))
+	{
+		out = make_int(lhs.int_value * rhs.int_value);
+		return true;
+	}
 	return binary_numeric(lhs, rhs, [](double a, double b)
 	{ return a * b; },
 		out);
@@ -305,6 +351,13 @@ bool mul_values(const UdonValue& lhs, const UdonValue& rhs, UdonValue& out)
 
 bool div_values(const UdonValue& lhs, const UdonValue& rhs, UdonValue& out)
 {
+	if (is_integer_type(lhs) && is_integer_type(rhs))
+	{
+		if (rhs.int_value == 0)
+			return false;
+		out = make_int(lhs.int_value / rhs.int_value);
+		return true;
+	}
 	if (!is_numeric(lhs) || !is_numeric(rhs))
 		return false;
 	const double r = as_number(rhs);
@@ -316,6 +369,13 @@ bool div_values(const UdonValue& lhs, const UdonValue& rhs, UdonValue& out)
 
 bool mod_values(const UdonValue& lhs, const UdonValue& rhs, UdonValue& out)
 {
+	if (is_integer_type(lhs) && is_integer_type(rhs))
+	{
+		if (rhs.int_value == 0)
+			return false;
+		out = make_int(lhs.int_value % rhs.int_value);
+		return true;
+	}
 	if (!is_numeric(lhs) || !is_numeric(rhs))
 		return false;
 	const double r = as_number(rhs);

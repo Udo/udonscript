@@ -146,7 +146,7 @@ static bool get_index_value(const UdonValue& obj, const UdonValue& index, UdonVa
 	if (obj.type == UdonValue::Type::String)
 	{
 		std::string s = obj.string_value;
-		s32 idx = static_cast<s32>(as_number(index));
+		s64 idx = static_cast<s64>(as_number(index));
 		if (idx >= 0 && static_cast<size_t>(idx) < s.size())
 			out = make_string(std::string(1, s[static_cast<size_t>(idx)]));
 		else
@@ -359,7 +359,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				break;
 			case UdonInstruction::OpCode::ENTER_SCOPE:
 			{
-				s32 slot_count = (!instr.operands.empty()) ? instr.operands[0].s32_value : 0;
+				s32 slot_count = (!instr.operands.empty()) ? instr.operands[0].int_value : 0;
 				if (slot_count < 0)
 					slot_count = 0;
 				current_env = interp->allocate_environment(static_cast<size_t>(slot_count), current_env);
@@ -375,8 +375,8 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 			}
 			case UdonInstruction::OpCode::LOAD_LOCAL:
 			{
-				const s32 depth = instr.operands.size() > 0 ? instr.operands[0].s32_value : 0;
-				const s32 slot = instr.operands.size() > 1 ? instr.operands[1].s32_value : 0;
+				const s32 depth = instr.operands.size() > 0 ? instr.operands[0].int_value : 0;
+				const s32 slot = instr.operands.size() > 1 ? instr.operands[1].int_value : 0;
 				UdonValue v{};
 				if (!load_slot(depth, slot, v))
 					return ok;
@@ -388,8 +388,8 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				UdonValue v{};
 				if (!eval_stack.pop(v))
 					return ok;
-				const s32 depth = instr.operands.size() > 0 ? instr.operands[0].s32_value : 0;
-				const s32 slot = instr.operands.size() > 1 ? instr.operands[1].s32_value : 0;
+				const s32 depth = instr.operands.size() > 0 ? instr.operands[0].int_value : 0;
+				const s32 slot = instr.operands.size() > 1 ? instr.operands[1].int_value : 0;
 				if (!store_slot(depth, slot, v))
 					return ok;
 				break;
@@ -444,10 +444,10 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 					return ok;
 				if (is_numeric(v))
 				{
-					if (v.type == UdonValue::Type::S32)
-						v.s32_value = -v.s32_value;
+					if (v.type == UdonValue::Type::Int)
+						v.int_value = -v.int_value;
 					else
-						v.f32_value = -v.f32_value;
+						v.float_value = -v.float_value;
 				}
 				else
 				{
@@ -547,7 +547,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 					success = equal_values(lhs, rhs, result);
 					if (instr.opcode == UdonInstruction::OpCode::NEQ)
 					{
-						result.s32_value = result.s32_value ? 0 : 1;
+						result.int_value = result.int_value ? 0 : 1;
 					}
 				}
 				else
@@ -570,7 +570,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 					ok.opt_error_message = "Malformed JUMP";
 					return ok;
 				}
-				ip = static_cast<size_t>(instr.operands[0].s32_value);
+				ip = static_cast<size_t>(instr.operands[0].int_value);
 				maybe_collect_periodic();
 				continue;
 			}
@@ -587,7 +587,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 						ok.opt_error_message = "Malformed JUMP_IF_FALSE";
 						return ok;
 					}
-					ip = static_cast<size_t>(instr.operands[0].s32_value);
+					ip = static_cast<size_t>(instr.operands[0].int_value);
 					maybe_collect_periodic();
 					continue;
 				}
@@ -654,7 +654,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 					return ok;
 				}
 				const std::string callee = instr.operands[0].string_value;
-				const s32 arg_count = instr.operands[1].s32_value;
+				const s32 arg_count = instr.operands[1].int_value;
 				std::vector<std::string> arg_names;
 				for (size_t i = 2; i < instr.operands.size(); ++i)
 					arg_names.push_back(instr.operands[i].string_value);
@@ -1274,12 +1274,12 @@ std::string UdonInterpreter::dump_instructions() const
 					ss << "PUSH <none>";
 					break;
 				case UdonInstruction::OpCode::LOAD_LOCAL:
-					ss << "LOAD_LOCAL depth=" << (instr.operands.size() > 0 ? instr.operands[0].s32_value : -1)
-					   << " slot=" << (instr.operands.size() > 1 ? instr.operands[1].s32_value : -1);
+					ss << "LOAD_LOCAL depth=" << (instr.operands.size() > 0 ? instr.operands[0].int_value : -1)
+					   << " slot=" << (instr.operands.size() > 1 ? instr.operands[1].int_value : -1);
 					break;
 				case UdonInstruction::OpCode::STORE_LOCAL:
-					ss << "STORE_LOCAL depth=" << (instr.operands.size() > 0 ? instr.operands[0].s32_value : -1)
-					   << " slot=" << (instr.operands.size() > 1 ? instr.operands[1].s32_value : -1);
+					ss << "STORE_LOCAL depth=" << (instr.operands.size() > 0 ? instr.operands[0].int_value : -1)
+					   << " slot=" << (instr.operands.size() > 1 ? instr.operands[1].int_value : -1);
 					break;
 				case UdonInstruction::OpCode::LOAD_GLOBAL:
 					print_var("LOADG");
@@ -1294,7 +1294,7 @@ std::string UdonInterpreter::dump_instructions() const
 					print_var("STORE");
 					break;
 				case UdonInstruction::OpCode::ENTER_SCOPE:
-					ss << "ENTER_SCOPE slots=" << (instr.operands.empty() ? 0 : instr.operands[0].s32_value);
+					ss << "ENTER_SCOPE slots=" << (instr.operands.empty() ? 0 : instr.operands[0].int_value);
 					break;
 				case UdonInstruction::OpCode::EXIT_SCOPE:
 					ss << "EXIT_SCOPE";
@@ -1336,10 +1336,10 @@ std::string UdonInterpreter::dump_instructions() const
 					ss << "GTE";
 					break;
 				case UdonInstruction::OpCode::JUMP:
-					ss << "JUMP " << (instr.operands.empty() ? -1 : instr.operands[0].s32_value);
+					ss << "JUMP " << (instr.operands.empty() ? -1 : instr.operands[0].int_value);
 					break;
 				case UdonInstruction::OpCode::JUMP_IF_FALSE:
-					ss << "JZ " << (instr.operands.empty() ? -1 : instr.operands[0].s32_value);
+					ss << "JZ " << (instr.operands.empty() ? -1 : instr.operands[0].int_value);
 					break;
 				case UdonInstruction::OpCode::TO_BOOL:
 					ss << "TO_BOOL";
@@ -1359,7 +1359,7 @@ std::string UdonInterpreter::dump_instructions() const
 				case UdonInstruction::OpCode::CALL:
 				{
 					std::string target = instr.operands.size() > 0 ? instr.operands[0].string_value : "<anon>";
-					s32 argc = instr.operands.size() > 1 ? instr.operands[1].s32_value : 0;
+					s32 argc = instr.operands.size() > 1 ? instr.operands[1].int_value : 0;
 					ss << "CALL " << target << " argc=" << argc;
 					if (instr.operands.size() > 2)
 					{

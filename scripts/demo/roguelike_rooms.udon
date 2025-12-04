@@ -68,7 +68,7 @@ function generate_dungeon(w, h, max_rooms) {
         var y2 = ry + rh - 1
         if (overlaps(rooms, rx - 1, ry - 1, x2 + 1, y2 + 1))
             continue
-        var room = {x1: rx, y1: ry, x2: x2, y2: y2, cx: to_s32((rx + x2) / 2), cy: to_s32((ry + y2) / 2)}
+        var room = {x1: rx, y1: ry, x2: x2, y2: y2, cx: to_int((rx + x2) / 2), cy: to_int((ry + y2) / 2)}
         rooms[room_count] = room
         room_count = room_count + 1
         draw_rect(grid, rx, ry, x2, y2, ".")

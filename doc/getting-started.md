@@ -133,7 +133,7 @@ Check out **[Built-in Functions Reference](builtins-reference.md)** and try:
 
 - Math functions: `sin()`, `cos()`, `sqrt()`
 - String functions: `to_upper()`, `substr()`, `trim()`
-- Type conversions: `to_string()`, `to_s32()`
+- Type conversions: `to_string()`, `to_int()`
 - Vector math: `vec3()`, vector operations
 
 ### 4. Work with Data Structures

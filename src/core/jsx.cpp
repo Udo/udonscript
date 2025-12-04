@@ -548,9 +548,9 @@ bool parse_literal_value(const std::string& expr, UdonValue& out)
 	{
 		const bool is_int = trimmed.find('.') == std::string::npos && trimmed.find('e') == std::string::npos && trimmed.find('E') == std::string::npos;
 		if (is_int)
-			out = make_int(static_cast<s32>(val));
+			out = make_int(static_cast<s64>(val));
 		else
-			out = make_float(static_cast<f32>(val));
+			out = make_float(static_cast<f64>(val));
 		return true;
 	}
 
@@ -623,7 +623,7 @@ std::string render_value_plain(const UdonValue& v)
 		case UdonValue::Type::None:
 			return "";
 		case UdonValue::Type::Bool:
-			return v.s32_value ? "true" : "false";
+			return v.int_value ? "true" : "false";
 		case UdonValue::Type::Array:
 		{
 			if (!v.array_map)
@@ -745,7 +745,7 @@ std::string render_attributes(const std::vector<JsxAttribute>& attrs, const Prop
 
 		if (e.value.type == UdonValue::Type::Bool)
 		{
-			if (e.value.s32_value)
+			if (e.value.int_value)
 				ss << " " << e.name;
 			continue;
 		}

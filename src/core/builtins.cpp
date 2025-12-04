@@ -105,16 +105,16 @@ static std::string to_json(const UdonValue& v)
 	{
 		case UdonValue::Type::String:
 			return "\"" + json_escape(v.string_value) + "\"";
-		case UdonValue::Type::S32:
-			return std::to_string(v.s32_value);
-		case UdonValue::Type::F32:
+		case UdonValue::Type::Int:
+			return std::to_string(v.int_value);
+		case UdonValue::Type::Float:
 		{
 			std::ostringstream ss;
-			ss << v.f32_value;
+			ss << v.float_value;
 			return ss.str();
 		}
 		case UdonValue::Type::Bool:
-			return v.s32_value ? "true" : "false";
+			return v.int_value ? "true" : "false";
 		case UdonValue::Type::Array:
 		{
 			if (!v.array_map)
@@ -348,9 +348,9 @@ struct JsonParser
 		std::string num = s.substr(start, pos - start);
 		double d = std::atof(num.c_str());
 		if (num.find('.') == std::string::npos)
-			out = make_int(static_cast<s32>(d));
+			out = make_int(static_cast<s64>(d));
 		else
-			out = make_float(static_cast<f32>(d));
+			out = make_float(static_cast<f64>(d));
 		return true;
 	}
 
@@ -485,14 +485,20 @@ void register_builtins(UdonInterpreter* interp)
 			return true;
 		}
 
-		if (positional.back().type != UdonValue::Type::S32)
+		if (positional.back().type != UdonValue::Type::Int)
 		{
 			err.has_error = true;
 			err.opt_error_message = "__object_literal: internal error - invalid count";
 			return true;
 		}
 
-		s32 count = positional.back().s32_value;
+		const s64 count = positional.back().int_value;
+		if (count < 0)
+		{
+			err.has_error = true;
+			err.opt_error_message = "__object_literal: internal error - negative count";
+			return true;
+		}
 
 		if (positional.size() != static_cast<size_t>(count * 2 + 1))
 		{
@@ -504,10 +510,10 @@ void register_builtins(UdonInterpreter* interp)
 		out.type = UdonValue::Type::Array;
 		out.array_map = interp->allocate_array();
 
-		for (s32 i = 0; i < count; i++)
+		for (s64 i = 0; i < count; i++)
 		{
-			const UdonValue& key = positional[count + i];
-			const UdonValue& UdonValue = positional[i];
+			const UdonValue& key = positional[static_cast<size_t>(count + i)];
+			const UdonValue& UdonValue = positional[static_cast<size_t>(i)];
 
 			std::string key_str = key_from_value(key);
 
@@ -533,18 +539,18 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("__gc_collect", "budget_ms?:s32", "none", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("__gc_collect", "budget_ms?:int", "none", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 	{
 		u32 budget = 0;
 		if (!positional.empty())
 		{
-			if (positional[0].type != UdonValue::Type::S32)
+			if (positional[0].type != UdonValue::Type::Int)
 			{
 				err.has_error = true;
 				err.opt_error_message = "__gc_collect expects an optional integer budget (ms)";
 				return true;
 			}
-			s32 val = positional[0].s32_value;
+			const s64 val = positional[0].int_value;
 			if (val > 0)
 				budget = static_cast<u32>(val);
 		}
@@ -556,14 +562,14 @@ void register_builtins(UdonInterpreter* interp)
 	interp->register_function("__gc_stats", "", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>&, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation&)
 	{
 		out = make_array();
-		array_set(out, "envs", make_int(static_cast<s32>(interp->heap_environments.size())));
-		array_set(out, "arrays", make_int(static_cast<s32>(interp->heap_arrays.size())));
-		array_set(out, "functions", make_int(static_cast<s32>(interp->heap_functions.size())));
-		array_set(out, "stack_roots", make_int(static_cast<s32>(interp->stack.size())));
-		array_set(out, "active_env_root_sets", make_int(static_cast<s32>(interp->active_env_roots.size())));
-		array_set(out, "active_value_root_sets", make_int(static_cast<s32>(interp->active_value_roots.size())));
-		array_set(out, "gc_runs", make_int(static_cast<s32>(interp->gc_runs)));
-		array_set(out, "gc_ms", make_int(static_cast<s32>(interp->gc_time_ms)));
+		array_set(out, "envs", make_int(static_cast<s64>(interp->heap_environments.size())));
+		array_set(out, "arrays", make_int(static_cast<s64>(interp->heap_arrays.size())));
+		array_set(out, "functions", make_int(static_cast<s64>(interp->heap_functions.size())));
+		array_set(out, "stack_roots", make_int(static_cast<s64>(interp->stack.size())));
+		array_set(out, "active_env_root_sets", make_int(static_cast<s64>(interp->active_env_roots.size())));
+		array_set(out, "active_value_root_sets", make_int(static_cast<s64>(interp->active_value_roots.size())));
+		array_set(out, "gc_runs", make_int(static_cast<s64>(interp->gc_runs)));
+		array_set(out, "gc_ms", make_int(static_cast<s64>(interp->gc_time_ms)));
 		return true;
 	});
 
@@ -638,7 +644,7 @@ void register_builtins(UdonInterpreter* interp)
 		{
 			try
 			{
-				int idx = std::stoi(key_str);
+				const s64 idx = std::stoll(key_str);
 				if (idx >= 0 && static_cast<size_t>(idx) < positional[0].string_value.size())
 					out = make_string(std::string(1, positional[0].string_value[static_cast<size_t>(idx)]));
 				else
@@ -817,7 +823,7 @@ void register_builtins(UdonInterpreter* interp)
 			std::string sig_text = symbol_val.string_value;
 			std::string sym_name = sig_text;
 			std::vector<std::string> arg_types;
-			std::string ret_type = "f32";
+			std::string ret_type = "float";
 			auto trim = [](std::string s)
 			{
 				while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front())))
@@ -864,25 +870,25 @@ void register_builtins(UdonInterpreter* interp)
 				{
 					const UdonValue& v = positional[i + 1];
 					std::string t = arg_types[i];
-					if (t == "s32")
+					if (t == "int" || t == "s32" || t == "s64")
 					{
-						if (v.type == UdonValue::Type::S32)
-							args.push_back(static_cast<double>(v.s32_value));
-						else if (v.type == UdonValue::Type::F32)
-							args.push_back(static_cast<double>(v.f32_value));
+						if (v.type == UdonValue::Type::Int)
+							args.push_back(static_cast<double>(v.int_value));
+						else if (v.type == UdonValue::Type::Float)
+							args.push_back(static_cast<double>(v.float_value));
 						else
 						{
 							err.has_error = true;
-							err.opt_error_message = "dl_call: expected s32 argument";
+							err.opt_error_message = "dl_call: expected int argument";
 							return true;
 						}
 					}
-					else if (t == "f32" || t == "f64" || t == "double")
+					else if (t == "float" || t == "f32" || t == "f64" || t == "double")
 					{
-						if (v.type == UdonValue::Type::F32)
-							args.push_back(static_cast<double>(v.f32_value));
-						else if (v.type == UdonValue::Type::S32)
-							args.push_back(static_cast<double>(v.s32_value));
+						if (v.type == UdonValue::Type::Float)
+							args.push_back(static_cast<double>(v.float_value));
+						else if (v.type == UdonValue::Type::Int)
+							args.push_back(static_cast<double>(v.int_value));
 						else
 						{
 							err.has_error = true;
@@ -903,10 +909,10 @@ void register_builtins(UdonInterpreter* interp)
 				for (size_t i = 1; i < positional.size(); ++i)
 				{
 					const UdonValue& v = positional[i];
-					if (v.type == UdonValue::Type::S32)
-						args.push_back(static_cast<double>(v.s32_value));
-					else if (v.type == UdonValue::Type::F32)
-						args.push_back(static_cast<double>(v.f32_value));
+					if (v.type == UdonValue::Type::Int)
+						args.push_back(static_cast<double>(v.int_value));
+					else if (v.type == UdonValue::Type::Float)
+						args.push_back(static_cast<double>(v.float_value));
 					else
 					{
 						err.has_error = true;
@@ -938,10 +944,10 @@ void register_builtins(UdonInterpreter* interp)
 					err.opt_error_message = "dl_call supports up to 4 arguments";
 					return true;
 			}
-			if (ret_type == "s32")
-				out = make_int(static_cast<s32>(result));
+			if (ret_type == "int" || ret_type == "s32" || ret_type == "s64")
+				out = make_int(static_cast<s64>(result));
 			else
-				out = make_float(static_cast<f32>(result));
+				out = make_float(static_cast<f64>(result));
 			return true;
 #else
 			(void)interp;
@@ -979,7 +985,7 @@ void register_builtins(UdonInterpreter* interp)
 #endif
 	});
 
-	interp->register_function("file_size", "path:string", "s32", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("file_size", "path:string", "int", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -996,11 +1002,11 @@ void register_builtins(UdonInterpreter* interp)
 			return true;
 		}
 		std::streampos size = file.tellg();
-		out = make_int(static_cast<s32>(size));
+		out = make_int(static_cast<s64>(size));
 		return true;
 	});
 
-	interp->register_function("file_time", "path:string", "s32", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("file_time", "path:string", "int", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -1016,7 +1022,7 @@ void register_builtins(UdonInterpreter* interp)
 			err.opt_error_message = "Could not access file: " + path;
 			return true;
 		}
-		out = make_int(static_cast<s32>(st.st_mtime));
+		out = make_int(static_cast<s64>(st.st_mtime));
 		return true;
 	});
 
@@ -1311,7 +1317,7 @@ void register_builtins(UdonInterpreter* interp)
 			int idx = 0;
 			try
 			{
-				idx = std::stoi(kv.first);
+				idx = std::stoll(kv.first);
 			}
 			catch (...)
 			{
@@ -1332,7 +1338,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("chr", "code:s32", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("chr", "code:int", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -1370,7 +1376,7 @@ void register_builtins(UdonInterpreter* interp)
 	binary("max", [](double a, double b)
 	{ return a > b ? a : b; });
 
-	interp->register_function("len", "UdonValue:any", "s32", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("len", "UdonValue:any", "int", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -1380,9 +1386,9 @@ void register_builtins(UdonInterpreter* interp)
 		}
 		const auto& v = positional[0];
 		if (v.type == UdonValue::Type::String)
-			out = make_int(static_cast<s32>(v.string_value.size()));
+			out = make_int(static_cast<s64>(v.string_value.size()));
 		else if (v.type == UdonValue::Type::Array && v.array_map)
-			out = make_int(static_cast<s32>(v.array_map->values.size()));
+			out = make_int(static_cast<s64>(v.array_map->values.size()));
 		else
 			out = make_int(0);
 		return true;
@@ -1513,7 +1519,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("substr", "s:string, start:s32, count:s32", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("substr", "s:string, start:int, count:int", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() < 2 || positional.size() > 3)
 		{
@@ -1522,8 +1528,8 @@ void register_builtins(UdonInterpreter* interp)
 			return true;
 		}
 		std::string s = value_to_string(positional[0]);
-		s32 str_len = static_cast<s32>(s.size());
-		s32 start = static_cast<s32>(as_number(positional[1]));
+		const s64 str_len = static_cast<s64>(s.size());
+		s64 start = static_cast<s64>(as_number(positional[1]));
 
 		if (start < 0)
 		{
@@ -1543,7 +1549,7 @@ void register_builtins(UdonInterpreter* interp)
 
 		if (positional.size() == 3)
 		{
-			s32 length = static_cast<s32>(as_number(positional[2]));
+			s64 length = static_cast<s64>(as_number(positional[2]));
 
 			if (length < 0)
 			{
@@ -1560,17 +1566,17 @@ void register_builtins(UdonInterpreter* interp)
 				length = str_len - start;
 			}
 
-			out = make_string(s.substr(start, length));
+			out = make_string(s.substr(static_cast<size_t>(start), static_cast<size_t>(length)));
 		}
 		else
 		{
-			out = make_string(s.substr(start));
+			out = make_string(s.substr(static_cast<size_t>(start)));
 		}
 
 		return true;
 	});
 
-	interp->register_function("replace", "s:string, old:string, new:string, count:s32", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("replace", "s:string, old:string, new:string, count:int", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() < 3 || positional.size() > 4)
 		{
@@ -1634,7 +1640,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("find", "s:string, needle:string, start:s32", "s32", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("find", "s:string, needle:string, start:int", "int", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() < 2 || positional.size() > 3)
 		{
@@ -1647,7 +1653,7 @@ void register_builtins(UdonInterpreter* interp)
 		size_t start = 0;
 		if (positional.size() == 3)
 		{
-			int st = static_cast<int>(as_number(positional[2]));
+			const s64 st = static_cast<s64>(as_number(positional[2]));
 			if (st > 0)
 				start = static_cast<size_t>(st);
 		}
@@ -1655,11 +1661,11 @@ void register_builtins(UdonInterpreter* interp)
 		if (pos == std::string::npos)
 			out = make_int(-1);
 		else
-			out = make_int(static_cast<s32>(pos));
+			out = make_int(static_cast<s64>(pos));
 		return true;
 	});
 
-	interp->register_function("ord", "s:string", "s32", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("ord", "s:string", "int", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -1673,7 +1679,7 @@ void register_builtins(UdonInterpreter* interp)
 			out = make_int(0);
 			return true;
 		}
-		out = make_int(static_cast<s32>(static_cast<unsigned char>(s[0])));
+		out = make_int(static_cast<s64>(static_cast<unsigned char>(s[0])));
 		return true;
 	});
 
@@ -1697,7 +1703,7 @@ void register_builtins(UdonInterpreter* interp)
 			for (const auto& kv : hay.array_map->values)
 			{
 				UdonValue tmp;
-				if (equal_values(kv.second, needle, tmp) && tmp.s32_value)
+				if (equal_values(kv.second, needle, tmp) && tmp.int_value)
 				{
 					found = true;
 					break;
@@ -1751,53 +1757,57 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("to_s32", "UdonValue:any", "s32", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	auto to_int_fn = [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
 			err.has_error = true;
-			err.opt_error_message = "to_s32 expects 1 argument";
+			err.opt_error_message = "to_int expects 1 argument";
 			return true;
 		}
 		if (is_numeric(positional[0]))
-			out = make_int(static_cast<s32>(as_number(positional[0])));
+			out = make_int(static_cast<s64>(as_number(positional[0])));
 		else if (positional[0].type == UdonValue::Type::String)
 		{
 			double d;
 			bool is_int;
 			if (parse_number_string(positional[0].string_value, d, is_int))
-				out = make_int(static_cast<s32>(d));
+				out = make_int(static_cast<s64>(d));
 			else
 				out = make_int(0);
 		}
 		else
 			out = make_int(0);
 		return true;
-	});
+	};
+	interp->register_function("to_int", "value:any", "int", to_int_fn);
+	register_alias("to_s32", "to_int");
 
-	interp->register_function("to_f32", "UdonValue:any", "f32", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	auto to_float_fn = [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
 			err.has_error = true;
-			err.opt_error_message = "to_f32 expects 1 argument";
+			err.opt_error_message = "to_float expects 1 argument";
 			return true;
 		}
 		if (is_numeric(positional[0]))
-			out = make_float(static_cast<f32>(as_number(positional[0])));
+			out = make_float(static_cast<f64>(as_number(positional[0])));
 		else if (positional[0].type == UdonValue::Type::String)
 		{
 			double d;
 			bool is_int;
 			if (parse_number_string(positional[0].string_value, d, is_int))
-				out = make_float(static_cast<f32>(d));
+				out = make_float(static_cast<f64>(d));
 			else
-				out = make_float(0.0f);
+				out = make_float(0.0);
 		}
 		else
-			out = make_float(0.0f);
+			out = make_float(0.0);
 		return true;
-	});
+	};
+	interp->register_function("to_float", "value:any", "float", to_float_fn);
+	register_alias("to_f32", "to_float");
 
 	interp->register_function("to_string", "UdonValue:any", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 	{
@@ -1844,7 +1854,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("range", "start:s32, stop:s32, step:s32", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("range", "start:int, stop:int, step:int", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.empty() || positional.size() > 3)
 		{
@@ -1852,42 +1862,42 @@ void register_builtins(UdonInterpreter* interp)
 			err.opt_error_message = "range expects (stop) or (start, stop, [step])";
 			return true;
 		}
-		s32 start = 0;
-		s32 stop = 0;
-		s32 step = 1;
+		s64 start = 0;
+		s64 stop = 0;
+		s64 step = 1;
 		if (positional.size() == 1)
 		{
-			stop = positional[0].s32_value;
+			stop = positional[0].int_value;
 		}
 		else
 		{
-			start = positional[0].s32_value;
-			stop = positional[1].s32_value;
+			start = positional[0].int_value;
+			stop = positional[1].int_value;
 			if (positional.size() == 3)
-				step = positional[2].s32_value;
+				step = positional[2].int_value;
 		}
 		if (step == 0)
 			step = 1;
 		out.type = UdonValue::Type::Array;
 		out.array_map = interp->allocate_array();
-		int idx = 0;
+		s64 idx = 0;
 		if (step > 0)
 		{
-			for (s32 v = start; v < stop; v += step)
+			for (s64 v = start; v < stop; v += step)
 				array_set(out, std::to_string(idx++), make_int(v));
 		}
 		else
 		{
-			for (s32 v = start; v > stop; v += step)
+			for (s64 v = start; v > stop; v += step)
 				array_set(out, std::to_string(idx++), make_int(v));
 		}
 		return true;
 	});
 
 	static std::mt19937 rng(static_cast<unsigned int>(std::chrono::steady_clock::now().time_since_epoch().count()));
-	interp->register_function("rand", "", "f32", [](UdonInterpreter*, const std::vector<UdonValue>&, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation&)
+	interp->register_function("rand", "", "float", [](UdonInterpreter*, const std::vector<UdonValue>&, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation&)
 	{
-		std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+		std::uniform_real_distribution<double> dist(0.0, 1.0);
 		out = make_float(dist(rng));
 		return true;
 	});
@@ -1920,12 +1930,12 @@ void register_builtins(UdonInterpreter* interp)
 			key = key_from_value(positional[1]);
 		else
 		{
-			int max_idx = -1;
+			s64 max_idx = -1;
 			for (const auto& kv : arr.array_map->values)
 			{
 				try
 				{
-					int k = std::stoi(kv.first);
+					s64 k = std::stoll(kv.first);
 					if (k > max_idx)
 						max_idx = k;
 				}
@@ -1982,12 +1992,12 @@ void register_builtins(UdonInterpreter* interp)
 			return true;
 		}
 		UdonValue arr = positional[0];
-		std::vector<int> indices;
+		std::vector<s64> indices;
 		for (const auto& kv : arr.array_map->values)
 		{
 			try
 			{
-				indices.push_back(std::stoi(kv.first));
+				indices.push_back(std::stoll(kv.first));
 			}
 			catch (...)
 			{
@@ -2009,7 +2019,7 @@ void register_builtins(UdonInterpreter* interp)
 		{
 			try
 			{
-				(void)std::stoi(kv.first);
+				(void)std::stoll(kv.first);
 			}
 			catch (...)
 			{
@@ -2021,7 +2031,7 @@ void register_builtins(UdonInterpreter* interp)
 			std::string orig = std::to_string(indices[i]);
 			auto it = arr.array_map->values.find(orig);
 			if (it != arr.array_map->values.end())
-				new_values[std::to_string(static_cast<int>(i - 1))] = it->second;
+				new_values[std::to_string(i - 1)] = it->second;
 		}
 		arr.array_map->values.swap(new_values);
 		return true;
@@ -2036,12 +2046,12 @@ void register_builtins(UdonInterpreter* interp)
 			return true;
 		}
 		UdonValue arr = positional[0];
-		std::vector<int> indices;
+		std::vector<s64> indices;
 		for (const auto& kv : arr.array_map->values)
 		{
 			try
 			{
-				indices.push_back(std::stoi(kv.first));
+				indices.push_back(std::stoll(kv.first));
 			}
 			catch (...)
 			{
@@ -2055,7 +2065,7 @@ void register_builtins(UdonInterpreter* interp)
 		{
 			try
 			{
-				(void)std::stoi(kv.first);
+				(void)std::stoll(kv.first);
 			}
 			catch (...)
 			{
@@ -2068,19 +2078,19 @@ void register_builtins(UdonInterpreter* interp)
 			std::string orig = std::to_string(indices[i]);
 			auto it = arr.array_map->values.find(orig);
 			if (it != arr.array_map->values.end())
-				new_values[std::to_string(static_cast<int>(i + 1))] = it->second;
+				new_values[std::to_string(i + 1)] = it->second;
 		}
 		arr.array_map->values.swap(new_values);
 		out = make_none();
 		return true;
 	});
 
-	interp->register_function("time", "", "s32", [](UdonInterpreter*, const std::vector<UdonValue>&, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation&)
+	interp->register_function("time", "", "int", [](UdonInterpreter*, const std::vector<UdonValue>&, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation&)
 	{
 		using namespace std::chrono;
 		auto now = system_clock::now();
 		auto secs = duration_cast<seconds>(now.time_since_epoch()).count();
-		out = make_int(static_cast<s32>(secs));
+		out = make_int(static_cast<s64>(secs));
 		return true;
 	});
 

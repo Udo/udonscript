@@ -55,8 +55,8 @@ struct UdonValue
 	enum class Type
 	{
 		VariableReference,
-		S32,
-		F32,
+		Int,
+		Float,
 		String,
 		Bool,
 		Array, // managed array/map
@@ -67,8 +67,8 @@ struct UdonValue
 	Type type;
 	union
 	{
-		s32 s32_value;
-		f32 f32_value;
+		s64 int_value;
+		f64 float_value;
 		void* ptr_value; // for entity, material, mesh, texture references
 	};
 	std::string string_value;

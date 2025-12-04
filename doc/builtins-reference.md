@@ -153,7 +153,7 @@ POSIX only. Opens a shared object at `path` and returns a namespace array contai
 
 **Usage:**
 - `ns.call(symbol, args...)` invokes a numeric function (up to 4 arguments, converted to double) and returns a number.
-- You can supply a signature to aid tooling and validation: `ns.call("pow(f32,f32):f32", 2, 3)`. Supported arg types: `s32`, `f32`, `f64`/`double`. Return types: `f32` (default) or `s32`.
+- You can supply a signature to aid tooling and validation: `ns.call("pow(float,float):float", 2, 3)`. Supported arg types: `int`, `float`/`double`. Return types: `float` (default) or `int`.
 - `ns.close()` unloads the library.
 
 **Example:**
@@ -170,7 +170,7 @@ Returns the size of a file in bytes.
 **Parameters:**
 - `path: string` - Path to the file
 
-**Returns:** `s32` - File size in bytes
+**Returns:** `int` - File size in bytes
 
 **Errors:**
 - Triggers error if file cannot be accessed
@@ -188,7 +188,7 @@ Returns the last modification time of a file as a Unix timestamp.
 **Parameters:**
 - `path: string` - Path to the file
 
-**Returns:** `s32` - Unix timestamp of last modification
+**Returns:** `int` - Unix timestamp of last modification
 
 **Errors:**
 - Triggers error if file cannot be accessed
@@ -503,7 +503,7 @@ Returns the length of a string or the number of elements in an array.
 **Parameters:**
 - `value: any` - String or array
 
-**Returns:** `s32` - Length of string or size of array
+**Returns:** `int` - Length of string or size of array
 
 **Example:**
 ```javascript
@@ -517,10 +517,10 @@ Extracts a substring from a string. Behavior matches PHP's `substr()` function.
 
 **Parameters:**
 - `s: string` - Source string
-- `start: s32` - Starting index (0-based)
+- `start: int` - Starting index (0-based)
   - Positive: offset from beginning
   - Negative: offset from end of string
-- `count: s32` - Number of characters (optional, defaults to rest of string)
+- `count: int` - Number of characters (optional, defaults to rest of string)
   - Positive: number of characters to extract
   - Negative: omit this many characters from the end
   - If omitted: extract to end of string
@@ -647,7 +647,7 @@ Prefix/suffix checks.
 
 Find substring, returns index or -1.
 
-**Returns:** `s32`
+**Returns:** `int`
 
 ### `ord(s)` / `chr(code)`
 
@@ -747,14 +747,14 @@ var query = "SELECT * FROM books WHERE author = '" + safe + "'"
 
 ## Type Conversion
 
-### `to_s32(value)`
+### `to_int(value)`
 
-Converts a value to a 32-bit signed integer.
+Converts a value to a 64-bit signed integer.
 
 **Parameters:**
 - `value: any` - Value to convert
 
-**Returns:** `s32` - Integer value
+**Returns:** `Int` - Integer value
 
 **Description:**
 - Numeric values are truncated to integer
@@ -763,19 +763,20 @@ Converts a value to a 32-bit signed integer.
 
 **Example:**
 ```javascript
-var i1 = to_s32(3.7)      // i1 = 3
-var i2 = to_s32("42")     // i2 = 42
-var i3 = to_s32("hello")  // i3 = 0
+var i1 = to_int(3.7)      // i1 = 3
+var i2 = to_int("42")     // i2 = 42
+var i3 = to_int("hello")  // i3 = 0
 ```
+Alias: `to_s32`.
 
-### `to_f32(value)`
+### `to_float(value)`
 
-Converts a value to a 32-bit floating point number.
+Converts a value to a 64-bit floating point number.
 
 **Parameters:**
 - `value: any` - Value to convert
 
-**Returns:** `f32` - Float value
+**Returns:** `Float` - Float value
 
 **Description:**
 - Numeric values are converted to float
@@ -784,10 +785,11 @@ Converts a value to a 32-bit floating point number.
 
 **Example:**
 ```javascript
-var f1 = to_f32(42)       // f1 = 42.0
-var f2 = to_f32("3.14")   // f2 = 3.14
-var f3 = to_f32("hello")  // f3 = 0.0
+var f1 = to_float(42)       // f1 = 42.0
+var f2 = to_float("3.14")   // f2 = 3.14
+var f3 = to_float("hello")  // f3 = 0.0
 ```
+Alias: `to_f32`.
 
 ### `to_string(value)`
 
@@ -850,11 +852,12 @@ Returns the type name of a value as a string.
 **Returns:** `string` - Type name
 
 **Possible return values:**
-- `"S32"` - 32-bit signed integer
-- `"F32"` - 32-bit floating point
+- `"Int"` - 64-bit signed integer
+- `"Float"` - 64-bit floating point
 - `"String"` - String
 - `"Bool"` - Boolean
 - `"Array"` - Array/object/map
+- `"Function"` - Callable/closure
 - `"Vector2"` - 2D vector
 - `"Vector3"` - 3D vector
 - `"Vector4"` - 4D vector
@@ -862,8 +865,8 @@ Returns the type name of a value as a string.
 
 **Example:**
 ```javascript
-print(typeof(42))           // S32
-print(typeof(3.14))         // F32
+print(typeof(42))           // Int
+print(typeof(3.14))         // Float
 print(typeof("hello"))      // String
 print(typeof(true))         // Bool
 print(typeof({x: 10}))      // Array
@@ -1000,7 +1003,7 @@ Returns the number of elements in an array/object or the length of a string (int
 **Parameters:**
 - `value: any` - Value to measure
 
-**Returns:** `s32` - Number of elements/characters
+**Returns:** `int` - Number of elements/characters
 
 **Example:**
 ```javascript
@@ -1213,7 +1216,7 @@ When an error occurs, the script execution stops and an error message is returne
 
 2. **Array/Map access**: Property access is efficient, but avoid unnecessary lookups in tight loops.
 
-3. **Type conversions**: Minimize unnecessary type conversions (`to_string`, `to_s32`, etc.) in performance-critical code.
+3. **Type conversions**: Minimize unnecessary type conversions (`to_string`, `to_int`, etc.) in performance-critical code.
 
 4. **Function calls**: Function calls have overhead. Very tight inner loops might benefit from inlining logic.
 
