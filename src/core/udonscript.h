@@ -142,6 +142,7 @@ struct UdonInstruction
 		Builtin,
 		Function
 	};
+	mutable u64 cached_version = 0;
 	mutable s32 cached_global_slot = -1;
 	mutable CachedKind cached_kind = CachedKind::None;
 	mutable UdonBuiltinFunction cached_builtin;
@@ -180,6 +181,7 @@ struct UdonInterpreter
 	std::vector<UdonValue::ManagedFunction*> heap_functions;
 	u64 gc_runs = 0;
 	u64 gc_time_ms = 0;
+	u64 cache_version = 1;
 	std::vector<void*> dl_handles;
 	std::vector<std::unique_ptr<UdonInterpreter>> imported_interpreters;
 	s32 global_init_counter = 0;
@@ -195,12 +197,15 @@ struct UdonInterpreter
 	CodeLocation compile(const std::string& source_code);
 	CodeLocation compile_append(const std::string& source_code);
 	void seed_builtin_globals();
+	void reset_state(bool release_heaps, bool release_handles);
 	CodeLocation run(std::string function_name,
 		std::vector<UdonValue> args,
 		std::unordered_map<std::string, UdonValue> named_args,
 		UdonValue& return_value);
 	void rebuild_global_slots();
 	s32 get_global_slot(const std::string& name) const;
+	bool get_global_value(const std::string& name, UdonValue& out, s32 slot_hint = -1) const;
+	void set_global_value(const std::string& name, const UdonValue& v, s32 slot_hint = -1);
 	CodeLocation run_eventhandlers(std::string on_event_name);
 	std::string dump_instructions() const;
 	void clear();

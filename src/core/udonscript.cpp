@@ -398,7 +398,17 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 
 	while (ip < code.size())
 	{
-		const auto& instr = code[ip];
+		auto& instr = code[ip];
+		if (instr.cached_version != interp->cache_version)
+		{
+			instr.cached_version = interp->cache_version;
+			instr.cached_global_slot = GLOBAL_SLOT_UNKNOWN;
+			instr.cached_kind = UdonInstruction::CachedKind::None;
+			instr.cached_builtin = UdonBuiltinFunction();
+			instr.cached_fn = nullptr;
+			instr.cached_call_arg_names.clear();
+			instr.cached_has_named_args = false;
+		}
 		current_line = instr.line;
 		current_col = instr.column;
 		ok.line = current_line;
@@ -451,23 +461,16 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 			{
 				const std::string name = !instr.operands.empty() ? instr.operands[0].string_value : "";
 				s32 slot = instr.cached_global_slot;
-				if (slot == GLOBAL_SLOT_UNKNOWN)
+				if (slot == GLOBAL_SLOT_UNKNOWN || instr.cached_version != interp->cache_version)
 				{
 					slot = interp->get_global_slot(name);
 					instr.cached_global_slot = (slot >= 0) ? slot : GLOBAL_SLOT_MISS;
 				}
-				if (slot >= 0 && static_cast<size_t>(slot) < interp->global_slots.size())
-				{
-					eval_stack.push(interp->global_slots[static_cast<size_t>(slot)]);
-				}
+				UdonValue tmp{};
+				if (interp->get_global_value(name, tmp, slot))
+					eval_stack.push(tmp);
 				else
-				{
-					auto git = interp->globals.find(name);
-					if (git != interp->globals.end())
-						eval_stack.push(git->second);
-					else
-						eval_stack.push(make_none());
-				}
+					eval_stack.push(make_none());
 				break;
 			}
 			case UdonInstruction::OpCode::STORE_GLOBAL:
@@ -478,18 +481,12 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 					return ok;
 				const std::string name = !instr.operands.empty() ? instr.operands[0].string_value : "";
 				s32 slot = instr.cached_global_slot;
-				if (slot == GLOBAL_SLOT_UNKNOWN)
+				if (slot == GLOBAL_SLOT_UNKNOWN || instr.cached_version != interp->cache_version)
 				{
 					slot = interp->get_global_slot(name);
 					instr.cached_global_slot = (slot >= 0) ? slot : GLOBAL_SLOT_MISS;
 				}
-				if (slot >= 0)
-				{
-					if (interp->global_slots.size() <= static_cast<size_t>(slot))
-						interp->global_slots.resize(static_cast<size_t>(slot) + 1, make_none());
-					interp->global_slots[static_cast<size_t>(slot)] = v;
-				}
-				interp->globals[name] = v;
+				interp->set_global_value(name, v, slot);
 				break;
 			}
 			case UdonInstruction::OpCode::ADD:
@@ -934,6 +931,62 @@ UdonInterpreter::UdonInterpreter()
 	register_builtins(this);
 }
 
+void UdonInterpreter::reset_state(bool release_heaps, bool release_handles)
+{
+	if (release_handles)
+	{
+		for (void* h : dl_handles)
+		{
+#if defined(__unix__) || defined(__APPLE__)
+			if (h)
+				dlclose(h);
+#else
+			(void)h;
+#endif
+		}
+		dl_handles.clear();
+		imported_interpreters.clear();
+	}
+
+	if (release_heaps)
+	{
+		for (auto* env : heap_environments)
+			delete env;
+		for (auto* arr : heap_arrays)
+			delete arr;
+		for (auto* fn : heap_functions)
+			delete fn;
+		heap_environments.clear();
+		heap_arrays.clear();
+		heap_functions.clear();
+	}
+
+	instructions.clear();
+	function_params.clear();
+	function_variadic.clear();
+	function_param_slots.clear();
+	function_scope_sizes.clear();
+	function_variadic_slot.clear();
+	function_cache.clear();
+	event_handlers.clear();
+	globals.clear();
+	global_slots.clear();
+	global_slot_lookup.clear();
+	declared_globals.clear();
+	declared_global_order.clear();
+	stack.clear();
+	active_env_roots.clear();
+	active_value_roots.clear();
+	value_buffer_pool.clear();
+	map_buffer_pool.clear();
+	gc_runs = 0;
+	gc_time_ms = 0;
+	cache_version = 1;
+	global_init_counter = 0;
+	lambda_counter = 0;
+	context_info.clear();
+}
+
 struct FunctionBinding
 {
 	std::shared_ptr<std::vector<UdonInstruction>> code;
@@ -1192,24 +1245,7 @@ void UdonInterpreter::seed_builtin_globals()
 
 CodeLocation UdonInterpreter::compile(const std::string& source_code)
 {
-	instructions.clear();
-	function_params.clear();
-	function_variadic.clear();
-	function_param_slots.clear();
-	function_scope_sizes.clear();
-	function_variadic_slot.clear();
-	event_handlers.clear();
-	globals.clear();
-	global_slots.clear();
-	global_slot_lookup.clear();
-	declared_global_order.clear();
-	stack.clear();
-	value_buffer_pool.clear();
-	map_buffer_pool.clear();
-	declared_globals.clear();
-	global_init_counter = 0;
-	lambda_counter = 0;
-	context_info.clear();
+	reset_state(false, false);
 	seed_builtin_globals();
 	return compile_append(source_code);
 }
@@ -1235,6 +1271,35 @@ s32 UdonInterpreter::get_global_slot(const std::string& name) const
 	if (it == global_slot_lookup.end())
 		return -1;
 	return it->second;
+}
+
+bool UdonInterpreter::get_global_value(const std::string& name, UdonValue& out, s32 slot_hint) const
+{
+	s32 slot = (slot_hint >= 0) ? slot_hint : get_global_slot(name);
+	if (slot >= 0 && static_cast<size_t>(slot) < global_slots.size())
+	{
+		out = global_slots[static_cast<size_t>(slot)];
+		return true;
+	}
+	auto git = globals.find(name);
+	if (git != globals.end())
+	{
+		out = git->second;
+		return true;
+	}
+	return false;
+}
+
+void UdonInterpreter::set_global_value(const std::string& name, const UdonValue& v, s32 slot_hint)
+{
+	s32 slot = (slot_hint >= 0) ? slot_hint : get_global_slot(name);
+	if (slot >= 0)
+	{
+		if (global_slots.size() <= static_cast<size_t>(slot))
+			global_slots.resize(static_cast<size_t>(slot) + 1, make_none());
+		global_slots[static_cast<size_t>(slot)] = v;
+	}
+	globals[name] = v;
 }
 
 CodeLocation UdonInterpreter::compile_append(const std::string& source_code)
@@ -1374,46 +1439,7 @@ CodeLocation UdonInterpreter::run(std::string function_name,
 
 void UdonInterpreter::clear()
 {
-	for (void* h : dl_handles)
-	{
-#if defined(__unix__) || defined(__APPLE__)
-		if (h)
-			dlclose(h);
-#else
-		(void)h;
-#endif
-	}
-	dl_handles.clear();
-	imported_interpreters.clear();
-	instructions.clear();
-	function_params.clear();
-	function_variadic.clear();
-	function_param_slots.clear();
-	function_scope_sizes.clear();
-	function_variadic_slot.clear();
-	function_cache.clear();
-	event_handlers.clear();
-	globals.clear();
-	global_slots.clear();
-	global_slot_lookup.clear();
-	value_buffer_pool.clear();
-	map_buffer_pool.clear();
-	declared_globals.clear();
-	declared_global_order.clear();
-	stack.clear();
-	active_env_roots.clear();
-	active_value_roots.clear();
-	for (auto* env : heap_environments)
-		delete env;
-	heap_environments.clear();
-	for (auto* arr : heap_arrays)
-		delete arr;
-	heap_arrays.clear();
-	for (auto* fn : heap_functions)
-		delete fn;
-	heap_functions.clear();
-	gc_runs = 0;
-	gc_time_ms = 0;
+	reset_state(true, true);
 }
 
 std::string UdonInterpreter::dump_instructions() const
@@ -1683,18 +1709,7 @@ void UdonInterpreter::collect_garbage(const std::vector<UdonEnvironment*>* env_r
 	if (invalidate_caches)
 	{
 		function_cache.clear();
-		for (auto& fn_pair : instructions)
-		{
-			if (!fn_pair.second)
-				continue;
-			for (auto& instr : *fn_pair.second)
-			{
-				instr.cached_kind = UdonInstruction::CachedKind::None;
-				instr.cached_fn = nullptr;
-				instr.cached_builtin = UdonBuiltinFunction();
-				instr.cached_global_slot = GLOBAL_SLOT_UNKNOWN;
-			}
-		}
+		++cache_version;
 	}
 
 	std::vector<UdonEnvironment*> live_envs;
