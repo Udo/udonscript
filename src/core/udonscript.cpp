@@ -59,9 +59,8 @@ std::unordered_set<std::string> collect_top_level_globals(const std::vector<Toke
 	return names;
 }
 
-class ValueStack
+struct ValueStack
 {
-  public:
 	explicit ValueStack(CodeLocation& err_ref) : err(err_ref) {}
 
 	void push(const UdonValue& v)
@@ -120,7 +119,6 @@ class ValueStack
 		return values;
 	}
 
-  private:
 	CodeLocation& err;
 	std::vector<UdonValue> values;
 };

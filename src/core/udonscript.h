@@ -258,7 +258,6 @@ struct ScopedRoot
 		return *storage();
 	}
 
-  private:
 	std::vector<UdonValue>* storage()
 	{
 		return external_values ? external_values : &owned_values;
