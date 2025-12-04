@@ -8,3 +8,6 @@ base_hex: FF
 from_hex: 255
 base_custom: 101010
 from_custom: 42
+crc32: 352441c2
+md5: 900150983cd24fb0d6963f7d28e17f72
+sha1: a9993e364706816aba3e25717850c26c9cd0d89d

@@ -475,6 +475,11 @@ to_base(number, "0123456789ABCDEF")   // -> hex string
 from_base("FF", "0123456789ABCDEF")   // -> 255
 to_base(42, "01")                     // -> "101010"
 from_base("101010", "01")             // -> 42
+
+// Hash helpers (hex output, binary-safe input strings)
+crc32("data")
+md5("data")
+sha1("data")
 ```
 ```
 

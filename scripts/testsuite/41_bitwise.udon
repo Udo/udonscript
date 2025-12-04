@@ -10,4 +10,7 @@ function main() {
     print("from_hex:", from_base("FF", "0123456789ABCDEF"))
     print("base_custom:", to_base(42, "01"))
     print("from_custom:", from_base("101010", "01"))
+    print("crc32:", crc32("abc"))
+    print("md5:", md5("abc"))
+    print("sha1:", sha1("abc"))
 }

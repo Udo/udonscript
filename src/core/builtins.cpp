@@ -223,6 +223,193 @@ static std::string base64_decode(const std::string& in)
 	return out;
 }
 
+static const std::array<uint32_t, 256> crc32_table = []() {
+	std::array<uint32_t, 256> tbl{};
+	for (uint32_t i = 0; i < 256; ++i)
+	{
+		uint32_t c = i;
+		for (int j = 0; j < 8; ++j)
+			c = (c & 1) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
+		tbl[i] = c;
+	}
+	return tbl;
+}();
+
+static uint32_t crc32(const std::string& data)
+{
+	uint32_t crc = 0xFFFFFFFFu;
+	for (unsigned char ch : data)
+		crc = crc32_table[(crc ^ ch) & 0xFFu] ^ (crc >> 8);
+	return crc ^ 0xFFFFFFFFu;
+}
+
+// MD5
+struct Md5Ctx
+{
+	uint32_t h[4];
+	uint64_t len = 0;
+	std::string buffer;
+};
+
+static uint32_t md5_f(uint32_t x, uint32_t y, uint32_t z) { return (x & y) | (~x & z); }
+static uint32_t md5_g(uint32_t x, uint32_t y, uint32_t z) { return (x & z) | (y & ~z); }
+static uint32_t md5_h(uint32_t x, uint32_t y, uint32_t z) { return x ^ y ^ z; }
+static uint32_t md5_i(uint32_t x, uint32_t y, uint32_t z) { return y ^ (x | ~z); }
+static uint32_t md5_rot(uint32_t x, uint32_t c) { return (x << c) | (x >> (32 - c)); }
+
+static void md5_process_block(Md5Ctx& ctx, const unsigned char block[64])
+{
+	uint32_t a = ctx.h[0], b = ctx.h[1], c = ctx.h[2], d = ctx.h[3];
+	uint32_t x[16];
+	for (int i = 0; i < 16; ++i)
+		x[i] = static_cast<uint32_t>(block[i * 4]) | (static_cast<uint32_t>(block[i * 4 + 1]) << 8) |
+		       (static_cast<uint32_t>(block[i * 4 + 2]) << 16) | (static_cast<uint32_t>(block[i * 4 + 3]) << 24);
+
+	auto R = [&](auto F, uint32_t& a_, uint32_t b_, uint32_t c_, uint32_t d_, uint32_t xk, uint32_t s, uint32_t ti)
+	{
+		a_ = b_ + md5_rot(a_ + F(b_, c_, d_) + xk + ti, s);
+	};
+
+	R(md5_f, a, b, c, d, x[0], 7, 0xd76aa478); R(md5_f, d, a, b, c, x[1], 12, 0xe8c7b756);
+	R(md5_f, c, d, a, b, x[2], 17, 0x242070db); R(md5_f, b, c, d, a, x[3], 22, 0xc1bdceee);
+	R(md5_f, a, b, c, d, x[4], 7, 0xf57c0faf); R(md5_f, d, a, b, c, x[5], 12, 0x4787c62a);
+	R(md5_f, c, d, a, b, x[6], 17, 0xa8304613); R(md5_f, b, c, d, a, x[7], 22, 0xfd469501);
+	R(md5_f, a, b, c, d, x[8], 7, 0x698098d8); R(md5_f, d, a, b, c, x[9], 12, 0x8b44f7af);
+	R(md5_f, c, d, a, b, x[10], 17, 0xffff5bb1); R(md5_f, b, c, d, a, x[11], 22, 0x895cd7be);
+	R(md5_f, a, b, c, d, x[12], 7, 0x6b901122); R(md5_f, d, a, b, c, x[13], 12, 0xfd987193);
+	R(md5_f, c, d, a, b, x[14], 17, 0xa679438e); R(md5_f, b, c, d, a, x[15], 22, 0x49b40821);
+
+	R(md5_g, a, b, c, d, x[1], 5, 0xf61e2562); R(md5_g, d, a, b, c, x[6], 9, 0xc040b340);
+	R(md5_g, c, d, a, b, x[11], 14, 0x265e5a51); R(md5_g, b, c, d, a, x[0], 20, 0xe9b6c7aa);
+	R(md5_g, a, b, c, d, x[5], 5, 0xd62f105d); R(md5_g, d, a, b, c, x[10], 9, 0x02441453);
+	R(md5_g, c, d, a, b, x[15], 14, 0xd8a1e681); R(md5_g, b, c, d, a, x[4], 20, 0xe7d3fbc8);
+	R(md5_g, a, b, c, d, x[9], 5, 0x21e1cde6); R(md5_g, d, a, b, c, x[14], 9, 0xc33707d6);
+	R(md5_g, c, d, a, b, x[3], 14, 0xf4d50d87); R(md5_g, b, c, d, a, x[8], 20, 0x455a14ed);
+	R(md5_g, a, b, c, d, x[13], 5, 0xa9e3e905); R(md5_g, d, a, b, c, x[2], 9, 0xfcefa3f8);
+	R(md5_g, c, d, a, b, x[7], 14, 0x676f02d9); R(md5_g, b, c, d, a, x[12], 20, 0x8d2a4c8a);
+
+	R(md5_h, a, b, c, d, x[5], 4, 0xfffa3942); R(md5_h, d, a, b, c, x[8], 11, 0x8771f681);
+	R(md5_h, c, d, a, b, x[11], 16, 0x6d9d6122); R(md5_h, b, c, d, a, x[14], 23, 0xfde5380c);
+	R(md5_h, a, b, c, d, x[1], 4, 0xa4beea44); R(md5_h, d, a, b, c, x[4], 11, 0x4bdecfa9);
+	R(md5_h, c, d, a, b, x[7], 16, 0xf6bb4b60); R(md5_h, b, c, d, a, x[10], 23, 0xbebfbc70);
+	R(md5_h, a, b, c, d, x[13], 4, 0x289b7ec6); R(md5_h, d, a, b, c, x[0], 11, 0xeaa127fa);
+	R(md5_h, c, d, a, b, x[3], 16, 0xd4ef3085); R(md5_h, b, c, d, a, x[6], 23, 0x04881d05);
+	R(md5_h, a, b, c, d, x[9], 4, 0xd9d4d039); R(md5_h, d, a, b, c, x[12], 11, 0xe6db99e5);
+	R(md5_h, c, d, a, b, x[15], 16, 0x1fa27cf8); R(md5_h, b, c, d, a, x[2], 23, 0xc4ac5665);
+
+	R(md5_i, a, b, c, d, x[0], 6, 0xf4292244); R(md5_i, d, a, b, c, x[7], 10, 0x432aff97);
+	R(md5_i, c, d, a, b, x[14], 15, 0xab9423a7); R(md5_i, b, c, d, a, x[5], 21, 0xfc93a039);
+	R(md5_i, a, b, c, d, x[12], 6, 0x655b59c3); R(md5_i, d, a, b, c, x[3], 10, 0x8f0ccc92);
+	R(md5_i, c, d, a, b, x[10], 15, 0xffeff47d); R(md5_i, b, c, d, a, x[1], 21, 0x85845dd1);
+	R(md5_i, a, b, c, d, x[8], 6, 0x6fa87e4f); R(md5_i, d, a, b, c, x[15], 10, 0xfe2ce6e0);
+	R(md5_i, c, d, a, b, x[6], 15, 0xa3014314); R(md5_i, b, c, d, a, x[13], 21, 0x4e0811a1);
+	R(md5_i, a, b, c, d, x[4], 6, 0xf7537e82); R(md5_i, d, a, b, c, x[11], 10, 0xbd3af235);
+	R(md5_i, c, d, a, b, x[2], 15, 0x2ad7d2bb); R(md5_i, b, c, d, a, x[9], 21, 0xeb86d391);
+
+	ctx.h[0] += a; ctx.h[1] += b; ctx.h[2] += c; ctx.h[3] += d;
+}
+
+static std::string md5(const std::string& data)
+{
+	Md5Ctx ctx{{0x67452301u, 0xefcdab89u, 0x98badcfeu, 0x10325476u}, 0, ""};
+	ctx.len = static_cast<uint64_t>(data.size()) * 8;
+	ctx.buffer = data;
+
+	ctx.buffer.push_back(static_cast<char>(0x80));
+	while ((ctx.buffer.size() % 64) != 56)
+		ctx.buffer.push_back(static_cast<char>(0x00));
+	for (int i = 0; i < 8; ++i)
+		ctx.buffer.push_back(static_cast<char>((ctx.len >> (8 * i)) & 0xFF));
+
+	for (size_t i = 0; i < ctx.buffer.size(); i += 64)
+		md5_process_block(ctx, reinterpret_cast<const unsigned char*>(ctx.buffer.data() + i));
+
+	std::ostringstream ss;
+	ss << std::hex << std::setfill('0');
+	for (int i = 0; i < 4; ++i)
+		ss << std::setw(2) << ((ctx.h[i] >> 0) & 0xFF) << std::setw(2) << ((ctx.h[i] >> 8) & 0xFF)
+		   << std::setw(2) << ((ctx.h[i] >> 16) & 0xFF) << std::setw(2) << ((ctx.h[i] >> 24) & 0xFF);
+	return ss.str();
+}
+
+// SHA1
+struct Sha1Ctx
+{
+	uint32_t h[5];
+	uint64_t len = 0;
+	std::string buffer;
+};
+
+static uint32_t sha1_rot(uint32_t x, uint32_t s) { return (x << s) | (x >> (32 - s)); }
+
+static void sha1_process_block(Sha1Ctx& ctx, const unsigned char block[64])
+{
+	uint32_t w[80];
+	for (int i = 0; i < 16; ++i)
+	{
+		w[i] = (static_cast<uint32_t>(block[i * 4]) << 24) | (static_cast<uint32_t>(block[i * 4 + 1]) << 16) |
+		       (static_cast<uint32_t>(block[i * 4 + 2]) << 8) | (static_cast<uint32_t>(block[i * 4 + 3]));
+	}
+	for (int i = 16; i < 80; ++i)
+		w[i] = sha1_rot(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+
+	uint32_t a = ctx.h[0], b = ctx.h[1], c = ctx.h[2], d = ctx.h[3], e = ctx.h[4];
+
+	for (int i = 0; i < 80; ++i)
+	{
+		uint32_t f, k;
+		if (i < 20)
+		{
+			f = (b & c) | (~b & d);
+			k = 0x5a827999;
+		}
+		else if (i < 40)
+		{
+			f = b ^ c ^ d;
+			k = 0x6ed9eba1;
+		}
+		else if (i < 60)
+		{
+			f = (b & c) | (b & d) | (c & d);
+			k = 0x8f1bbcdc;
+		}
+		else
+		{
+			f = b ^ c ^ d;
+			k = 0xca62c1d6;
+		}
+		uint32_t temp = sha1_rot(a, 5) + f + e + k + w[i];
+		e = d;
+		d = c;
+		c = sha1_rot(b, 30);
+		b = a;
+		a = temp;
+	}
+
+	ctx.h[0] += a; ctx.h[1] += b; ctx.h[2] += c; ctx.h[3] += d; ctx.h[4] += e;
+}
+
+static std::string sha1(const std::string& data)
+{
+	Sha1Ctx ctx{{0x67452301u, 0xefcdab89u, 0x98badcfeu, 0x10325476u, 0xc3d2e1f0u}, 0, ""};
+	ctx.len = static_cast<uint64_t>(data.size()) * 8;
+	ctx.buffer = data;
+	ctx.buffer.push_back(static_cast<char>(0x80));
+	while ((ctx.buffer.size() % 64) != 56)
+		ctx.buffer.push_back(static_cast<char>(0x00));
+	for (int i = 0; i < 8; ++i)
+		ctx.buffer.push_back(static_cast<char>((ctx.len >> (56 - 8 * i)) & 0xFF));
+
+	for (size_t i = 0; i < ctx.buffer.size(); i += 64)
+		sha1_process_block(ctx, reinterpret_cast<const unsigned char*>(ctx.buffer.data() + i));
+
+	std::ostringstream ss;
+	ss << std::hex << std::setfill('0');
+	for (int i = 0; i < 5; ++i)
+		ss << std::setw(8) << ctx.h[i];
+	return ss.str();
+}
+
 static int compare_for_sort(const UdonValue& a, const UdonValue& b)
 {
 	if (is_numeric(a) && is_numeric(b))
@@ -1622,6 +1809,44 @@ void register_builtins(UdonInterpreter* interp)
 	{ return a << b; });
 	binary_int("bit_shr", [](s64 a, s64 b)
 	{ return a >> b; });
+
+	interp->register_function("crc32", "data:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	{
+		if (positional.size() != 1 || positional[0].type != UdonValue::Type::String)
+		{
+			err.has_error = true;
+			err.opt_error_message = "crc32 expects (string)";
+			return true;
+		}
+		std::ostringstream ss;
+		ss << std::hex << std::setfill('0') << std::setw(8) << crc32(positional[0].string_value);
+		out = make_string(ss.str());
+		return true;
+	});
+
+	interp->register_function("md5", "data:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	{
+		if (positional.size() != 1 || positional[0].type != UdonValue::Type::String)
+		{
+			err.has_error = true;
+			err.opt_error_message = "md5 expects (string)";
+			return true;
+		}
+		out = make_string(md5(positional[0].string_value));
+		return true;
+	});
+
+	interp->register_function("sha1", "data:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	{
+		if (positional.size() != 1 || positional[0].type != UdonValue::Type::String)
+		{
+			err.has_error = true;
+			err.opt_error_message = "sha1 expects (string)";
+			return true;
+		}
+		out = make_string(sha1(positional[0].string_value));
+		return true;
+	});
 
 	interp->register_function("to_base", "value:number, digits:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 	{
