@@ -254,6 +254,8 @@ if (condition1) {
 while (condition) {
     // code
 }
+// Optional else runs only if the loop body never executes
+while (condition) statement else statement
 ```
 
 Example:
@@ -263,6 +265,7 @@ while (i < 10) {
     print(i)
     i = i + 1
 }
+while (false) print("never") else print("ran_else") // else fires
 ```
 
 ### For Loop
@@ -271,6 +274,8 @@ while (i < 10) {
 for (initialization; condition; increment) {
     // code
 }
+// Optional else runs only if the loop body never executes
+for (init; condition; incr) statement else statement
 ```
 
 Example:
@@ -278,6 +283,7 @@ Example:
 for (var i = 0; i < 10; i = i + 1) {
     print(i)
 }
+for (; false; ) print("never") else print("ran_else") // else fires
 ```
 
 ### Foreach Loop
@@ -306,6 +312,9 @@ foreach (key, value in data) {
 foreach (value in "héllo") {
     print(value) // h, é, l, l, o
 }
+
+// Foreach can have an optional else: runs when the loop doesn't execute
+foreach (value in {}) print("never runs") else print("fallback for empty/non-array")
 ```
 
 ### Switch Statement

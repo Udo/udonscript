@@ -468,6 +468,13 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 	if (match_keyword("while"))
 	{
 		begin_scope(ctx, body, true, &previous());
+		std::string ran_tmp_name = "__while_ran_" + std::to_string(body.size());
+		declare_variable(ctx, ran_tmp_name);
+		ResolvedVariable ran_tmp;
+		resolve_variable(ctx, ran_tmp_name, ran_tmp);
+		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(0) });
+		emit_store_var(body, ran_tmp);
+
 		if (!expect_symbol("(", "Expected '(' after while"))
 			return false;
 		size_t cond_index = body.size();
@@ -479,6 +486,9 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		size_t jmp_false_index = body.size();
 		emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
 
+		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(1) });
+		emit_store_var(body, ran_tmp);
+
 		loop_stack.push_back({});
 		loop_stack.back().continue_target = static_cast<size_t>(cond_index);
 		loop_stack.back().allow_continue = true;
@@ -488,11 +498,27 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		for (size_t ci : loop_stack.back().continue_jumps)
 			body[ci].operands[0].int_value = static_cast<s64>(cond_index);
 		emit(body, UdonInstruction::OpCode::JUMP, { make_int(static_cast<s64>(cond_index)) });
-		size_t exit_index = end_scope(ctx, body);
+		size_t exit_index = body.size();
 		body[jmp_false_index].operands[0].int_value = static_cast<s64>(exit_index);
 		for (size_t bi : loop_stack.back().break_jumps)
 			body[bi].operands[0].int_value = static_cast<s64>(exit_index);
 		loop_stack.pop_back();
+
+		if (match_keyword("else"))
+		{
+			emit_load_var(body, ran_tmp);
+			emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(0) });
+			emit(body, UdonInstruction::OpCode::EQ);
+			size_t skip_else = body.size();
+			emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+			if (!parse_statement_or_block(body, ctx, false))
+				return false;
+			size_t end_else = end_scope(ctx, body);
+			body[skip_else].operands[0].int_value = static_cast<s64>(end_else);
+			return true;
+		}
+
+		end_scope(ctx, body);
 		return true;
 	}
 
@@ -539,6 +565,13 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 			}
 		}
 
+		std::string ran_tmp_name = "__for_ran_" + std::to_string(body.size());
+		declare_variable(ctx, ran_tmp_name);
+		ResolvedVariable ran_tmp;
+		resolve_variable(ctx, ran_tmp_name, ran_tmp);
+		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(0) });
+		emit_store_var(body, ran_tmp);
+
 		size_t cond_index = body.size();
 		if (!match_symbol(";"))
 		{
@@ -569,6 +602,8 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		loop_stack.push_back({});
 		loop_stack.back().allow_continue = true;
 		loop_stack.back().scope_depth = ctx.scope_stack.size();
+		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(1) });
+		emit_store_var(body, ran_tmp);
 		if (!parse_statement_or_block(body, ctx))
 			return false;
 		size_t continue_target = body.size();
@@ -576,11 +611,27 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 			body[ci].operands[0].int_value = static_cast<s64>(continue_target);
 		body.insert(body.end(), increment_code.begin(), increment_code.end());
 		emit(body, UdonInstruction::OpCode::JUMP, { make_int(static_cast<s64>(cond_index)) });
-		size_t exit_index = end_scope(ctx, body);
+		size_t exit_index = body.size();
 		body[jmp_false_index].operands[0].int_value = static_cast<s64>(exit_index);
 		for (size_t bi : loop_stack.back().break_jumps)
 			body[bi].operands[0].int_value = static_cast<s64>(exit_index);
 		loop_stack.pop_back();
+
+		if (match_keyword("else"))
+		{
+			emit_load_var(body, ran_tmp);
+			emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(0) });
+			emit(body, UdonInstruction::OpCode::EQ);
+			size_t skip_else = body.size();
+			emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+			if (!parse_statement_or_block(body, ctx, false))
+				return false;
+			size_t end_else = end_scope(ctx, body);
+			body[skip_else].operands[0].int_value = static_cast<s64>(end_else);
+			return true;
+		}
+
+		end_scope(ctx, body);
 		return true;
 	}
 
@@ -693,7 +744,6 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		}
 		else
 		{
-			// Overwrite single loop variable with the value for single-param foreach
 			emit_load_var(body, coll_var);
 			emit_load_var(body, key_var);
 			std::vector<UdonValue> get_val_ops;
@@ -708,7 +758,7 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		loop_stack.push_back({});
 		loop_stack.back().allow_continue = true;
 		loop_stack.back().scope_depth = ctx.scope_stack.size();
-		if (!parse_block(body, ctx))
+		if (!parse_statement_or_block(body, ctx, false))
 			return false;
 
 		size_t continue_target = body.size();
@@ -721,10 +771,30 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		emit_store_var(body, idx_var);
 
 		emit(body, UdonInstruction::OpCode::JUMP, { make_int(static_cast<s64>(cond_index)) });
-		size_t exit_index = end_scope(ctx, body);
-		body[jmp_false_index].operands[0].int_value = static_cast<s64>(exit_index);
+		size_t else_check = body.size();
+
+		size_t final_exit = 0;
+		if (match_keyword("else"))
+		{
+			emit_load_var(body, idx_var);
+			emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(0) });
+			emit(body, UdonInstruction::OpCode::EQ);
+			size_t skip_else = body.size();
+			emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+
+			if (!parse_statement_or_block(body, ctx, false))
+				return false;
+			final_exit = end_scope(ctx, body);
+			body[skip_else].operands[0].int_value = static_cast<s64>(final_exit);
+		}
+		else
+		{
+			final_exit = end_scope(ctx, body);
+		}
+
+		body[jmp_false_index].operands[0].int_value = static_cast<s64>(else_check);
 		for (size_t bi : loop_stack.back().break_jumps)
-			body[bi].operands[0].int_value = static_cast<s64>(exit_index);
+			body[bi].operands[0].int_value = static_cast<s64>(final_exit);
 		loop_stack.pop_back();
 		return true;
 	}

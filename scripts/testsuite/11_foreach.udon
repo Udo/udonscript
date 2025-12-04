@@ -13,4 +13,9 @@ function main() {
 		count = count + v;
 	}
 	print("value_sum:", count);
+
+	// else on empty/non-array
+	var ran_else = false
+	foreach (var x in {}) print("unreachable") else ran_else = true
+	print("ran_else:", ran_else)
 }
