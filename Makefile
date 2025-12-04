@@ -4,6 +4,17 @@ CXX = g++
 CXXFLAGS = -std=c++17 -Wall -Wextra -O2 -g -Isrc
 LDFLAGS =
 
+# Optional DWARF/libdw support for dlinspect
+DWARF_CFLAGS := $(shell pkg-config --cflags libdw 2>/dev/null)
+DWARF_LIBS := $(shell pkg-config --libs libdw 2>/dev/null)
+
+ifneq ($(DWARF_LIBS),)
+	CXXFLAGS += -DUDON_HAS_LIBDW $(DWARF_CFLAGS)
+	LDFLAGS += $(DWARF_LIBS)
+else
+	$(warning libdw not found; dlinspect will be built without DWARF support)
+endif
+
 # Directories
 SRC_DIR = src
 CORE_DIR = $(SRC_DIR)/core

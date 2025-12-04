@@ -33,6 +33,14 @@ set_target_properties(udonscript_core PROPERTIES
 # Find all program files in src/programs/
 file(GLOB PROGRAM_SOURCES ${CMAKE_SOURCE_DIR}/src/programs/*.cpp)
 
+# Optional DWARF inspection dependencies
+find_library(LIBDW_LIBRARY dw)
+find_library(LIBELF_LIBRARY elf)
+set(HAS_LIBDW FALSE)
+if(LIBDW_LIBRARY AND LIBELF_LIBRARY)
+    set(HAS_LIBDW TRUE)
+endif()
+
 # Create an executable for each program
 foreach(PROGRAM_SOURCE ${PROGRAM_SOURCES})
     get_filename_component(PROGRAM_NAME ${PROGRAM_SOURCE} NAME_WE)
@@ -44,6 +52,15 @@ foreach(PROGRAM_SOURCE ${PROGRAM_SOURCES})
     set_target_properties(${PROGRAM_NAME} PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin
     )
+
+    if(PROGRAM_NAME STREQUAL "dlinspect")
+        if(HAS_LIBDW)
+            target_compile_definitions(${PROGRAM_NAME} PRIVATE UDON_HAS_LIBDW=1)
+            target_link_libraries(${PROGRAM_NAME} PRIVATE ${LIBDW_LIBRARY} ${LIBELF_LIBRARY})
+        else()
+            message(WARNING "libdw/libelf not found; dlinspect will be built without DWARF support")
+        endif()
+    endif()
 endforeach()
 
 # Compiler warnings
