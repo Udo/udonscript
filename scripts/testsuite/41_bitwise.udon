@@ -1,0 +1,13 @@
+// Test: bitwise builtins
+function main() {
+    print("and:", bit_and(6, 3))
+    print("or:", bit_or(6, 3))
+    print("xor:", bit_xor(6, 3))
+    print("not:", bit_not(0))
+    print("shl:", bit_shl(1, 4))
+    print("shr:", bit_shr(32, 3))
+    print("base_hex:", to_base(255, "0123456789ABCDEF"))
+    print("from_hex:", from_base("FF", "0123456789ABCDEF"))
+    print("base_custom:", to_base(42, "01"))
+    print("from_custom:", from_base("101010", "01"))
+}

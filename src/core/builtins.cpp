@@ -1586,6 +1586,130 @@ void register_builtins(UdonInterpreter* interp)
 	binary("max", [](double a, double b)
 	{ return a > b ? a : b; });
 
+	auto binary_int = [interp](const std::string& name, s64 (*fn)(s64, s64))
+	{
+		interp->register_function(name, "a:int, b:int", "int", [fn, name](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		{
+			if (positional.size() != 2 || !is_integer_type(positional[0]) || !is_integer_type(positional[1]))
+			{
+				err.has_error = true;
+				err.opt_error_message = name + " expects 2 integer arguments";
+				return true;
+			}
+			out = make_int(fn(positional[0].int_value, positional[1].int_value));
+			return true;
+		});
+	};
+
+	binary_int("bit_and", [](s64 a, s64 b)
+	{ return a & b; });
+	binary_int("bit_or", [](s64 a, s64 b)
+	{ return a | b; });
+	binary_int("bit_xor", [](s64 a, s64 b)
+	{ return a ^ b; });
+	interp->register_function("bit_not", "x:int", "int", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	{
+		if (positional.size() != 1 || !is_integer_type(positional[0]))
+		{
+			err.has_error = true;
+			err.opt_error_message = "bit_not expects 1 integer argument";
+			return true;
+		}
+		out = make_int(~positional[0].int_value);
+		return true;
+	});
+	binary_int("bit_shl", [](s64 a, s64 b)
+	{ return a << b; });
+	binary_int("bit_shr", [](s64 a, s64 b)
+	{ return a >> b; });
+
+	interp->register_function("to_base", "value:number, digits:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	{
+		if (positional.size() != 2 || positional[1].type != UdonValue::Type::String)
+		{
+			err.has_error = true;
+			err.opt_error_message = "to_base expects (number, digits_string)";
+			return true;
+		}
+		std::string digits = positional[1].string_value;
+		const size_t base = digits.size();
+		if (base < 2)
+		{
+			err.has_error = true;
+			err.opt_error_message = "to_base requires at least 2 digits";
+			return true;
+		}
+		s64 v = static_cast<s64>(as_number(positional[0]));
+		bool neg = v < 0;
+		if (neg)
+			v = -v;
+		if (v == 0)
+		{
+			std::string s(1, digits[0]);
+			if (neg)
+				s = "-" + s;
+			out = make_string(s);
+			return true;
+		}
+		std::string result;
+		while (v > 0)
+		{
+			size_t idx = static_cast<size_t>(v % base);
+			result.push_back(digits[idx]);
+			v /= static_cast<s64>(base);
+		}
+		if (neg)
+			result.push_back('-');
+		std::reverse(result.begin(), result.end());
+		out = make_string(result);
+		return true;
+	});
+
+	interp->register_function("from_base", "value:string, digits:string", "int", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	{
+		if (positional.size() != 2 || positional[0].type != UdonValue::Type::String || positional[1].type != UdonValue::Type::String)
+		{
+			err.has_error = true;
+			err.opt_error_message = "from_base expects (string, digits_string)";
+			return true;
+		}
+		std::string s = positional[0].string_value;
+		std::string digits = positional[1].string_value;
+		const size_t base = digits.size();
+		if (base < 2)
+		{
+			err.has_error = true;
+			err.opt_error_message = "from_base requires at least 2 digits";
+			return true;
+		}
+		std::unordered_map<char, int> val;
+		for (size_t i = 0; i < base; ++i)
+			val[digits[i]] = static_cast<int>(i);
+		bool neg = false;
+		size_t pos = 0;
+		if (!s.empty() && s[0] == '-')
+		{
+			neg = true;
+			pos = 1;
+		}
+		s64 acc = 0;
+		for (; pos < s.size(); ++pos)
+		{
+			auto it = val.find(s[pos]);
+			if (it == val.end())
+			{
+				err.has_error = true;
+				err.opt_error_message = "Invalid digit in from_base input";
+				return true;
+			}
+			acc = acc * static_cast<s64>(base) + it->second;
+		}
+		if (neg)
+			acc = -acc;
+		out = make_int(acc);
+		return true;
+	});
+
 	interp->register_function("len", "UdonValue:any", "int", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)

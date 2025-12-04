@@ -454,6 +454,28 @@ You can call functions and built-ins using method syntax: `receiver.method(arg1,
 ```
 
 For arrays/maps, if a property with the same name exists and is a callable value, that property is invoked before any built-in or global function of the same name. If the property exists but is not callable, an error is raised.
+
+### Bitwise Helpers
+
+Built-ins for integer bit operations:
+
+```javascript
+bit_and(a, b)
+bit_or(a, b)
+bit_xor(a, b)
+bit_not(x)
+bit_shl(a, b)  // left shift
+bit_shr(a, b)  // right shift
+```
+
+Arbitrary base conversion helpers:
+
+```javascript
+to_base(number, "0123456789ABCDEF")   // -> hex string
+from_base("FF", "0123456789ABCDEF")   // -> 255
+to_base(42, "01")                     // -> "101010"
+from_base("101010", "01")             // -> 42
+```
 ```
 
 ---

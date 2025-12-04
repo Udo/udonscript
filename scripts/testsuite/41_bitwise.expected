@@ -1,0 +1,10 @@
+and: 2
+or: 7
+xor: 5
+not: -1
+shl: 16
+shr: 4
+base_hex: FF
+from_hex: 255
+base_custom: 101010
+from_custom: 42
