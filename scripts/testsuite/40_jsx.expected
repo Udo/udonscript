@@ -1,0 +1,4 @@
+<div class="card" data-id="7" data-kind="demo" role="note" style="background: white; color: red"><h1>Hello</h1><p></p><ul>
+		<li data-active>first</li><li>&lt;b&gt;two&lt;/b&gt;</li></ul><span></span></div>
+<div class="card" data-id="42" hidden role="override" style="color: blue"><h1>Updated</h1><p>Sub</p><ul>
+		<li>one</li><li>two</li></ul><span></span></div>

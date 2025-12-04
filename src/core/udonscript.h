@@ -211,15 +211,15 @@ struct UdonValue::ManagedFunction
 {
 	std::string function_name;
 	UdonEnvironment* captured_env = nullptr;
-	std::string handler; // optional builtin handler tag
-	std::string template_body; // optional payload for template handlers
-	s32 handler_data = -1; // optional numeric payload for handlers
+	std::string template_body; // optional payload for native handlers
 	std::shared_ptr<std::vector<UdonInstruction>> code_ptr;
 	std::shared_ptr<std::vector<std::string>> param_ptr;
 	std::shared_ptr<std::vector<s32>> param_slots;
 	size_t root_scope_size = 0;
 	s32 variadic_slot = -1;
 	std::string variadic_param;
+	std::shared_ptr<void> user_data; // optional external payload for native closures
+	UdonBuiltinFunction native_handler; // optional native closure entrypoint
 	bool marked = false;
 };
 

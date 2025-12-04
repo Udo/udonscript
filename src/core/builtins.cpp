@@ -15,6 +15,7 @@
 #include <sstream>
 #include <iterator>
 #include <unordered_set>
+#include "jsx.hpp"
 #if defined(__unix__) || defined(__APPLE__)
 #include <dlfcn.h>
 #endif
@@ -773,20 +774,207 @@ void register_builtins(UdonInterpreter* interp)
 		out = make_array();
 		array_set(out, "_handle", make_int(handle_id));
 
-		auto make_handler = [&](const std::string& tag) -> UdonValue
+		struct DlHandleCtx
 		{
-			UdonValue fn{};
-			fn.type = UdonValue::Type::Function;
-			fn.function = interp->allocate_function();
-			fn.function->handler = tag;
-			fn.function->handler_data = handle_id;
-			fn.function->code_ptr = nullptr;
-			fn.function->param_ptr = nullptr;
-			return fn;
+			s32 handle_id = -1;
+		};
+		auto ctx = std::make_shared<DlHandleCtx>();
+		ctx->handle_id = handle_id;
+
+		auto make_handler = [&](auto fn) -> UdonValue
+		{
+			UdonValue fnv{};
+			fnv.type = UdonValue::Type::Function;
+			fnv.function = interp->allocate_function();
+			fnv.function->user_data = ctx;
+			fnv.function->native_handler = fn;
+			return fnv;
 		};
 
-		array_set(out, "call", make_handler("dl_call"));
-		array_set(out, "close", make_handler("dl_close"));
+		auto call_handler = [ctx](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err) -> bool
+		{
+#if defined(__unix__) || defined(__APPLE__)
+			if (positional.size() < 1)
+			{
+				err.has_error = true;
+				err.opt_error_message = "dl_call expects (symbol, args...)";
+				return true;
+			}
+			const UdonValue& symbol_val = positional[0];
+			if (symbol_val.type != UdonValue::Type::String)
+			{
+				err.has_error = true;
+				err.opt_error_message = "dl_call symbol must be a string";
+				return true;
+			}
+			void* handle = interp->get_dl_handle(ctx->handle_id);
+			if (!handle)
+			{
+				err.has_error = true;
+				err.opt_error_message = "dl_call: invalid handle";
+				return true;
+			}
+			std::string sig_text = symbol_val.string_value;
+			std::string sym_name = sig_text;
+			std::vector<std::string> arg_types;
+			std::string ret_type = "f32";
+			auto trim = [](std::string s)
+			{
+				while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front())))
+					s.erase(s.begin());
+				while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back())))
+					s.pop_back();
+				return s;
+			};
+			size_t lparen = sig_text.find('(');
+			size_t rparen = sig_text.find(')');
+			if (lparen != std::string::npos && rparen != std::string::npos && rparen > lparen)
+			{
+				sym_name = trim(sig_text.substr(0, lparen));
+				std::string args_sig = sig_text.substr(lparen + 1, rparen - lparen - 1);
+				std::stringstream ss(args_sig);
+				std::string item;
+				while (std::getline(ss, item, ','))
+				{
+					arg_types.push_back(trim(item));
+				}
+				if (rparen + 1 < sig_text.size() && sig_text[rparen + 1] == ':')
+				{
+					ret_type = trim(sig_text.substr(rparen + 2));
+				}
+			}
+			void* sym = dlsym(handle, sym_name.c_str());
+			if (!sym)
+			{
+				err.has_error = true;
+				err.opt_error_message = "dl_call: symbol not found";
+				return true;
+			}
+
+			std::vector<double> args;
+			if (!arg_types.empty())
+			{
+				if (positional.size() - 1 != arg_types.size())
+				{
+					err.has_error = true;
+					err.opt_error_message = "dl_call: argument count mismatch";
+					return true;
+				}
+				for (size_t i = 0; i < arg_types.size(); ++i)
+				{
+					const UdonValue& v = positional[i + 1];
+					std::string t = arg_types[i];
+					if (t == "s32")
+					{
+						if (v.type == UdonValue::Type::S32)
+							args.push_back(static_cast<double>(v.s32_value));
+						else if (v.type == UdonValue::Type::F32)
+							args.push_back(static_cast<double>(v.f32_value));
+						else
+						{
+							err.has_error = true;
+							err.opt_error_message = "dl_call: expected s32 argument";
+							return true;
+						}
+					}
+					else if (t == "f32" || t == "f64" || t == "double")
+					{
+						if (v.type == UdonValue::Type::F32)
+							args.push_back(static_cast<double>(v.f32_value));
+						else if (v.type == UdonValue::Type::S32)
+							args.push_back(static_cast<double>(v.s32_value));
+						else
+						{
+							err.has_error = true;
+							err.opt_error_message = "dl_call: expected float argument";
+							return true;
+						}
+					}
+					else
+					{
+						err.has_error = true;
+						err.opt_error_message = "dl_call: unsupported argument type '" + t + "'";
+						return true;
+					}
+				}
+			}
+			else
+			{
+				for (size_t i = 1; i < positional.size(); ++i)
+				{
+					const UdonValue& v = positional[i];
+					if (v.type == UdonValue::Type::S32)
+						args.push_back(static_cast<double>(v.s32_value));
+					else if (v.type == UdonValue::Type::F32)
+						args.push_back(static_cast<double>(v.f32_value));
+					else
+					{
+						err.has_error = true;
+						err.opt_error_message = "dl_call only supports numeric arguments";
+						return true;
+					}
+				}
+			}
+			double result = 0.0;
+			switch (args.size())
+			{
+				case 0:
+					result = (reinterpret_cast<double (*)()>(sym))();
+					break;
+				case 1:
+					result = (reinterpret_cast<double (*)(double)>(sym))(args[0]);
+					break;
+				case 2:
+					result = (reinterpret_cast<double (*)(double, double)>(sym))(args[0], args[1]);
+					break;
+				case 3:
+					result = (reinterpret_cast<double (*)(double, double, double)>(sym))(args[0], args[1], args[2]);
+					break;
+				case 4:
+					result = (reinterpret_cast<double (*)(double, double, double, double)>(sym))(args[0], args[1], args[2], args[3]);
+					break;
+				default:
+					err.has_error = true;
+					err.opt_error_message = "dl_call supports up to 4 arguments";
+					return true;
+			}
+			if (ret_type == "s32")
+				out = make_int(static_cast<s32>(result));
+			else
+				out = make_float(static_cast<f32>(result));
+			return true;
+#else
+			(void)interp;
+			(void)positional;
+			(void)out;
+			err.has_error = true;
+			err.opt_error_message = "dl_call not supported on this platform";
+			return true;
+#endif
+		};
+
+		auto close_handler = [ctx](UdonInterpreter* interp, const std::vector<UdonValue>&, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err) -> bool
+		{
+#if defined(__unix__) || defined(__APPLE__)
+			if (!interp->close_dl_handle(ctx->handle_id))
+			{
+				err.has_error = true;
+				err.opt_error_message = "dl_close: invalid handle";
+				return true;
+			}
+			out = make_none();
+			return true;
+#else
+			(void)interp;
+			(void)out;
+			err.has_error = true;
+			err.opt_error_message = "dl_close not supported on this platform";
+			return true;
+#endif
+		};
+
+		array_set(out, "call", make_handler(call_handler));
+		array_set(out, "close", make_handler(close_handler));
 		return true;
 #endif
 	});
@@ -873,17 +1061,39 @@ void register_builtins(UdonInterpreter* interp)
 			{
 				array_set(out, kv.first, kv.second);
 			}
+			struct ImportForwardCtx
+			{
+				s32 sub_id = -1;
+				std::string fn;
+			};
 			for (const auto& kv : sub_ref->instructions)
 			{
 				const std::string& name = kv.first;
 				if (name.rfind("__", 0) == 0)
 					continue;
+				auto ctx = std::make_shared<ImportForwardCtx>();
+				ctx->sub_id = sub_id;
+				ctx->fn = name;
+
 				UdonValue fn_val;
 				fn_val.type = UdonValue::Type::Function;
 				fn_val.function = interp->allocate_function();
-				fn_val.function->handler = "import_forward";
-				fn_val.function->handler_data = sub_id;
-				fn_val.function->template_body = name; // store target function name
+				fn_val.function->template_body = name;
+				fn_val.function->user_data = ctx;
+				fn_val.function->native_handler = [ctx](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>& named, UdonValue& out, CodeLocation& inner_err) -> bool
+				{
+					UdonInterpreter* sub = interp->get_imported_interpreter(ctx->sub_id);
+					if (!sub)
+					{
+						inner_err.has_error = true;
+						inner_err.opt_error_message = "import_forward: invalid module";
+						return true;
+					}
+					CodeLocation nested = sub->run(ctx->fn, positional, named, out);
+					if (nested.has_error)
+						inner_err = nested;
+					return true;
+				};
 				array_set(out, name, fn_val);
 			}
 		}
@@ -1188,9 +1398,83 @@ void register_builtins(UdonInterpreter* interp)
 			return true;
 		}
 
+		const std::string tmpl = positional[0].string_value;
 		auto* fn_obj = interp->allocate_function();
-		fn_obj->handler = "html_template";
+		fn_obj->template_body = tmpl;
+		fn_obj->native_handler = [tmpl](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>& named, UdonValue& out, CodeLocation& inner_err) -> bool
+		{
+			std::unordered_map<std::string, UdonValue> replacements;
+			if (!positional.empty() && positional[0].type == UdonValue::Type::Array && positional[0].array_map)
+				replacements = positional[0].array_map->values;
+			for (const auto& kv : named)
+				replacements[kv.first] = kv.second;
+
+			std::string rendered;
+			size_t pos = 0;
+			while (pos < tmpl.size())
+			{
+				size_t brace = tmpl.find('{', pos);
+				if (brace == std::string::npos)
+				{
+					rendered.append(tmpl.substr(pos));
+					break;
+				}
+				rendered.append(tmpl.substr(pos, brace - pos));
+				size_t end = tmpl.find('}', brace + 1);
+				if (end == std::string::npos)
+				{
+					rendered.append(tmpl.substr(brace));
+					break;
+				}
+				std::string key = tmpl.substr(brace + 1, end - brace - 1);
+				auto it = replacements.find(key);
+				if (it != replacements.end())
+					rendered.append(value_to_string(it->second));
+				pos = end + 1;
+			}
+			out = make_string(rendered);
+			(void)inner_err;
+			return true;
+		};
+
+		out.type = UdonValue::Type::Function;
+		out.function = fn_obj;
+		return true;
+	});
+
+	interp->register_function("$jsx", "template:string", "function", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	{
+		if (positional.size() != 1 || positional[0].type != UdonValue::Type::String)
+		{
+			err.has_error = true;
+			err.opt_error_message = "$jsx expects a single string template";
+			return true;
+		}
+
+		std::string parse_err;
+		auto tmpl = jsx_compile(positional[0].string_value, parse_err);
+		if (!tmpl)
+		{
+			err.has_error = true;
+			err.opt_error_message = "$jsx parse error: " + parse_err;
+			return true;
+		}
+
+		auto* fn_obj = interp->allocate_function();
 		fn_obj->template_body = positional[0].string_value;
+		fn_obj->user_data = tmpl;
+		fn_obj->native_handler = [tmpl](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>& named, UdonValue& out, CodeLocation& inner_err)
+		{
+			std::unordered_map<std::string, UdonValue> props;
+			if (!positional.empty() && positional[0].type == UdonValue::Type::Array && positional[0].array_map)
+				props = positional[0].array_map->values;
+			for (const auto& kv : named)
+				props[kv.first] = kv.second;
+
+			out = make_string(jsx_render(*tmpl, props));
+			(void)inner_err;
+			return true;
+		};
 
 		out.type = UdonValue::Type::Function;
 		out.function = fn_obj;

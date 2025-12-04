@@ -1,0 +1,14 @@
+// Demo: JSX template generator
+function main() {
+	var button = $jsx(<><button class="btn" disabled={disabled} style={style}>{label}</button></>);
+	var card = $jsx(<><section class="card" {...attrs}><h2>{title}</h2><p>{description}</p></section></>);
+
+	print(button({label: "Primary", disabled: false, style: {background: "#0050ff", color: "white"}}));
+	print(button({label: "Disabled", disabled: true, style: {color: "#888", border: "1px solid #ccc"}}));
+
+	print(card({
+		title: "JSX demo",
+		description: "<b>html</b> is escaped",
+		attrs: {role: "note", 'data-scope': "example"}
+	}));
+}

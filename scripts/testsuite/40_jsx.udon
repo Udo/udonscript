@@ -1,0 +1,32 @@
+// Test: JSX template rendering
+function main() {
+	var tpl = $jsx(<><div class="card" data-id={id} hidden={is_hidden} {...extra} 
+		style={styles}><h1>{title}</h1><p>{subtitle}</p><ul>
+		<li data-active={first_active}>{items:0}</li><li>{items:1}</li></ul><span>{flag}</span></div></>);
+
+	var out1 = tpl({
+		id: 7,
+		title: "Hello",
+		subtitle: none,
+		is_hidden: false,
+		first_active: true,
+		items: {0: "first", 1: "<b>two</b>"},
+		styles: {color: "red", background: "white"},
+		extra: {role: "note", 'data-kind': "demo"},
+		flag: false
+	});
+	print(out1);
+
+	var out2 = tpl({
+		id: 42,
+		title: "Updated",
+		subtitle: "Sub",
+		is_hidden: true,
+		first_active: false,
+		items: {0: "one", 1: "two"},
+		styles: {color: "blue"},
+		extra: {role: "override"},
+		flag: true
+	});
+	print(out2);
+}
