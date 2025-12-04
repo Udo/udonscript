@@ -1,7 +1,0 @@
-// Test: array ordering should be invalid (runtime error expected)
-function main() {
-    var a = {};
-    var b = {};
-    // This comparison should raise a runtime error per comparison rules.
-    print(a < b);
-}

@@ -231,9 +231,10 @@ bool Parser::parse_global_var()
 	const std::string name = advance().text;
 	if (globals.find(name) != globals.end())
 		return !make_error(previous(), "Global '" + name + "' already declared").has_error;
+	if (globals.insert(name).second)
+		global_order.push_back(name);
 	if (match_symbol(":"))
 		advance();
-	globals.insert(name);
 
 	if (match_symbol("="))
 	{

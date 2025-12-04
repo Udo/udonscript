@@ -25,6 +25,7 @@ struct Parser
 		std::unordered_map<std::string, std::vector<std::string>>& events_out,
 		std::vector<UdonInstruction>& global_init_out,
 		std::unordered_set<std::string>& globals_out,
+		std::vector<std::string>& global_order_out,
 		const std::unordered_set<std::string>& chunk_globals_out,
 		s32& lambda_counter_ref)
 		: tokens(tokens),
@@ -40,6 +41,7 @@ struct Parser
 		  events(events_out),
 		  global_init(global_init_out),
 		  globals(globals_out),
+		  global_order(global_order_out),
 		  chunk_globals(chunk_globals_out),
 		  lambda_counter(lambda_counter_ref)
 	{
@@ -60,6 +62,7 @@ struct Parser
 	std::unordered_map<std::string, std::vector<std::string>>& events;
 	std::vector<UdonInstruction>& global_init;
 	std::unordered_set<std::string>& globals;
+	std::vector<std::string>& global_order;
 	const std::unordered_set<std::string>& chunk_globals;
 	s32& lambda_counter;
 

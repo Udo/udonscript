@@ -142,9 +142,12 @@ struct UdonInstruction
 		Builtin,
 		Function
 	};
+	mutable s32 cached_global_slot = -1;
 	mutable CachedKind cached_kind = CachedKind::None;
 	mutable UdonBuiltinFunction cached_builtin;
 	mutable UdonValue::ManagedFunction* cached_fn = nullptr;
+	mutable std::vector<std::string> cached_call_arg_names;
+	mutable bool cached_has_named_args = false;
 };
 
 struct UdonEnvironment
@@ -166,6 +169,9 @@ struct UdonInterpreter
 	std::unordered_map<std::string, UdonBuiltinEntry> builtins;
 	std::unordered_map<std::string, std::vector<std::string>> event_handlers; // on:event -> function names
 	std::unordered_set<std::string> declared_globals;
+	std::vector<std::string> declared_global_order;
+	std::vector<UdonValue> global_slots;
+	std::unordered_map<std::string, s32> global_slot_lookup;
 	std::vector<UdonValue> stack;
 	std::vector<std::vector<UdonEnvironment*>*> active_env_roots;
 	std::vector<std::vector<UdonValue>*> active_value_roots;
@@ -180,6 +186,8 @@ struct UdonInterpreter
 	s32 lambda_counter = 0;
 	std::unordered_map<std::string, std::vector<std::string>> context_info;
 	std::unordered_map<std::string, UdonValue> function_cache;
+	std::vector<std::vector<UdonValue>> value_buffer_pool;
+	std::vector<std::unordered_map<std::string, UdonValue>> map_buffer_pool;
 
 	UdonInterpreter();
 	~UdonInterpreter();
@@ -191,12 +199,15 @@ struct UdonInterpreter
 		std::vector<UdonValue> args,
 		std::unordered_map<std::string, UdonValue> named_args,
 		UdonValue& return_value);
+	void rebuild_global_slots();
+	s32 get_global_slot(const std::string& name) const;
 	CodeLocation run_eventhandlers(std::string on_event_name);
 	std::string dump_instructions() const;
 	void clear();
 	void collect_garbage(const std::vector<UdonEnvironment*>* env_roots = nullptr,
 		const std::vector<UdonValue>* value_roots = nullptr,
-		u32 time_budget_ms = 0);
+		u32 time_budget_ms = 0,
+		bool invalidate_caches = false);
 	void register_function(const std::string& name,
 		const std::string& arg_signature,
 		const std::string& return_type,
@@ -252,6 +263,7 @@ struct UdonValue::ManagedFunction
 	std::vector<UdonValue> rooted_values; // values that must stay alive with this function
 	bool marked = false;
 	u64 magic = 0;
+	bool is_cache_wrapper = false;
 };
 
 struct ScopedRoot

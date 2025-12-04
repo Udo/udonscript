@@ -59,6 +59,58 @@ std::unordered_set<std::string> collect_top_level_globals(const std::vector<Toke
 	return names;
 }
 
+constexpr s32 GLOBAL_SLOT_UNKNOWN = -1;
+constexpr s32 GLOBAL_SLOT_MISS = -2;
+
+template <typename T>
+struct ScratchVector
+{
+	std::vector<T> data;
+	std::vector<std::vector<T>>* pool = nullptr;
+	explicit ScratchVector(std::vector<std::vector<T>>* p, size_t size_hint = 0) : pool(p)
+	{
+		if (pool && !pool->empty())
+		{
+			data = std::move(pool->back());
+			pool->pop_back();
+		}
+		data.clear();
+		if (size_hint)
+			data.resize(size_hint);
+	}
+	~ScratchVector()
+	{
+		if (pool)
+		{
+			data.clear();
+			pool->push_back(std::move(data));
+		}
+	}
+};
+
+struct ScratchMap
+{
+	std::unordered_map<std::string, UdonValue> data;
+	std::vector<std::unordered_map<std::string, UdonValue>>* pool = nullptr;
+	explicit ScratchMap(std::vector<std::unordered_map<std::string, UdonValue>>* p) : pool(p)
+	{
+		if (pool && !pool->empty())
+		{
+			data = std::move(pool->back());
+			pool->pop_back();
+		}
+		data.clear();
+	}
+	~ScratchMap()
+	{
+		if (pool)
+		{
+			data.clear();
+			pool->push_back(std::move(data));
+		}
+	}
+};
+
 struct ValueStack
 {
 	explicit ValueStack(CodeLocation& err_ref) : err(err_ref) {}
@@ -398,11 +450,24 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 			case UdonInstruction::OpCode::LOAD_VAR:
 			{
 				const std::string name = !instr.operands.empty() ? instr.operands[0].string_value : "";
-				auto git = interp->globals.find(name);
-				if (git != interp->globals.end())
-					eval_stack.push(git->second);
+				s32 slot = instr.cached_global_slot;
+				if (slot == GLOBAL_SLOT_UNKNOWN)
+				{
+					slot = interp->get_global_slot(name);
+					instr.cached_global_slot = (slot >= 0) ? slot : GLOBAL_SLOT_MISS;
+				}
+				if (slot >= 0 && static_cast<size_t>(slot) < interp->global_slots.size())
+				{
+					eval_stack.push(interp->global_slots[static_cast<size_t>(slot)]);
+				}
 				else
-					eval_stack.push(make_none());
+				{
+					auto git = interp->globals.find(name);
+					if (git != interp->globals.end())
+						eval_stack.push(git->second);
+					else
+						eval_stack.push(make_none());
+				}
 				break;
 			}
 			case UdonInstruction::OpCode::STORE_GLOBAL:
@@ -412,6 +477,18 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				if (!eval_stack.pop(v))
 					return ok;
 				const std::string name = !instr.operands.empty() ? instr.operands[0].string_value : "";
+				s32 slot = instr.cached_global_slot;
+				if (slot == GLOBAL_SLOT_UNKNOWN)
+				{
+					slot = interp->get_global_slot(name);
+					instr.cached_global_slot = (slot >= 0) ? slot : GLOBAL_SLOT_MISS;
+				}
+				if (slot >= 0)
+				{
+					if (interp->global_slots.size() <= static_cast<size_t>(slot))
+						interp->global_slots.resize(static_cast<size_t>(slot) + 1, make_none());
+					interp->global_slots[static_cast<size_t>(slot)] = v;
+				}
 				interp->globals[name] = v;
 				break;
 			}
@@ -661,34 +738,52 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				}
 				const std::string callee = instr.operands[0].string_value;
 				const s32 arg_count = instr.operands[1].int_value;
-				std::vector<std::string> arg_names;
-				for (size_t i = 2; i < instr.operands.size(); ++i)
-					arg_names.push_back(instr.operands[i].string_value);
+				if (instr.cached_call_arg_names.empty() && arg_count > 0)
+				{
+					instr.cached_call_arg_names.resize(static_cast<size_t>(arg_count));
+					instr.cached_has_named_args = false;
+					for (size_t i = 2; i < instr.operands.size() && (i - 2) < instr.cached_call_arg_names.size(); ++i)
+					{
+						const std::string& nm = instr.operands[i].string_value;
+						instr.cached_call_arg_names[i - 2] = nm;
+						if (!nm.empty())
+							instr.cached_has_named_args = true;
+					}
+				}
+				const auto& arg_names = instr.cached_call_arg_names;
+				const bool has_named_args = instr.cached_has_named_args;
 
-				std::vector<UdonValue> call_args(static_cast<size_t>(arg_count));
+				ScratchVector<UdonValue> call_args_buf(&interp->value_buffer_pool, static_cast<size_t>(std::max<s32>(arg_count, 0)));
+				auto& call_args = call_args_buf.data;
 				ScopedRoot call_arg_root(interp, &call_args);
-				std::vector<std::string> names(static_cast<size_t>(arg_count));
 				for (s32 idx = arg_count - 1; idx >= 0; --idx)
 				{
 					UdonValue v{};
 					if (!eval_stack.pop(v))
 						return ok;
 					call_args[static_cast<size_t>(idx)] = v;
-					if (static_cast<size_t>(idx) < arg_names.size())
-						names[static_cast<size_t>(idx)] = arg_names[static_cast<size_t>(idx)];
 				}
 
-				std::vector<UdonValue> positional;
+				ScratchVector<UdonValue> positional_buf(&interp->value_buffer_pool);
+				auto& positional = positional_buf.data;
+				positional.clear();
+				positional.reserve(static_cast<size_t>(std::max<s32>(arg_count, 0)));
+
+				ScratchMap named_buf(has_named_args ? &interp->map_buffer_pool : nullptr);
+				auto& named = named_buf.data;
+				if (has_named_args)
+					named.reserve(static_cast<size_t>(std::max<s32>(arg_count, 0)));
+
 				ScopedRoot positional_root(interp, &positional);
-				std::unordered_map<std::string, UdonValue> named;
-				ScopedRoot named_root(interp);
+				ScopedRoot named_root(has_named_args ? interp : nullptr);
 				for (size_t i = 0; i < call_args.size(); ++i)
 				{
-					if (!names[i].empty())
+					if (has_named_args && i < arg_names.size() && !arg_names[i].empty())
 					{
-						auto& dest = named[names[i]];
+						auto& dest = named[arg_names[i]];
 						dest = call_args[i];
-						named_root.add(dest);
+						if (has_named_args)
+							named_root.add(dest);
 					}
 					else
 						positional.push_back(call_args[i]);
@@ -911,6 +1006,7 @@ static bool resolve_function_by_name(UdonInterpreter* interp, const std::string&
 	UdonValue fn_val;
 	fn_val.type = UdonValue::Type::Function;
 	fn_val.function = interp->allocate_function();
+	fn_val.function->is_cache_wrapper = true;
 	UDON_ASSERT(fn_val.function != nullptr);
 	fn_val.function->function_name = name;
 	fn_val.function->code_ptr = fn_it->second;
@@ -1090,7 +1186,8 @@ std::vector<Token> UdonInterpreter::tokenize(const std::string& source_code)
 
 void UdonInterpreter::seed_builtin_globals()
 {
-	declared_globals.insert("context"); // will be filled with context info at runtime
+	if (declared_globals.insert("context").second) // will be filled with context info at runtime
+		declared_global_order.push_back("context");
 }
 
 CodeLocation UdonInterpreter::compile(const std::string& source_code)
@@ -1103,13 +1200,41 @@ CodeLocation UdonInterpreter::compile(const std::string& source_code)
 	function_variadic_slot.clear();
 	event_handlers.clear();
 	globals.clear();
+	global_slots.clear();
+	global_slot_lookup.clear();
+	declared_global_order.clear();
 	stack.clear();
+	value_buffer_pool.clear();
+	map_buffer_pool.clear();
 	declared_globals.clear();
 	global_init_counter = 0;
 	lambda_counter = 0;
 	context_info.clear();
 	seed_builtin_globals();
 	return compile_append(source_code);
+}
+
+void UdonInterpreter::rebuild_global_slots()
+{
+	if (global_slots.size() < declared_global_order.size())
+		global_slots.resize(declared_global_order.size(), make_none());
+
+	global_slot_lookup.clear();
+	for (size_t i = 0; i < declared_global_order.size(); ++i)
+	{
+		global_slot_lookup[declared_global_order[i]] = static_cast<s32>(i);
+		auto it = globals.find(declared_global_order[i]);
+		if (it != globals.end())
+			global_slots[i] = it->second;
+	}
+}
+
+s32 UdonInterpreter::get_global_slot(const std::string& name) const
+{
+	auto it = global_slot_lookup.find(name);
+	if (it == global_slot_lookup.end())
+		return -1;
+	return it->second;
 }
 
 CodeLocation UdonInterpreter::compile_append(const std::string& source_code)
@@ -1129,11 +1254,14 @@ CodeLocation UdonInterpreter::compile_append(const std::string& source_code)
 		event_handlers,
 		module_global_init,
 		declared_globals,
+		declared_global_order,
 		chunk_globals,
 		lambda_counter);
 	CodeLocation res = parser.parse();
 	if (res.has_error)
 		return res;
+
+	rebuild_global_slots();
 
 	auto populate_context_global = [&]()
 	{
@@ -1147,10 +1275,19 @@ CodeLocation UdonInterpreter::compile_append(const std::string& source_code)
 			arr.array_map = allocate_array();
 			s32 index = 0;
 			for (const auto& line : pair.second)
+			{
 				array_set(arr, std::to_string(index++), make_string(line));
+			}
 			array_set(ctx, pair.first, arr);
 		}
 		globals["context"] = ctx;
+		auto slot = get_global_slot("context");
+		if (slot >= 0)
+		{
+			if (global_slots.size() <= static_cast<size_t>(slot))
+				global_slots.resize(static_cast<size_t>(slot) + 1, make_none());
+			global_slots[static_cast<size_t>(slot)] = ctx;
+		}
 	};
 	populate_context_global();
 
@@ -1257,6 +1394,12 @@ void UdonInterpreter::clear()
 	function_cache.clear();
 	event_handlers.clear();
 	globals.clear();
+	global_slots.clear();
+	global_slot_lookup.clear();
+	value_buffer_pool.clear();
+	map_buffer_pool.clear();
+	declared_globals.clear();
+	declared_global_order.clear();
 	stack.clear();
 	active_env_roots.clear();
 	active_value_roots.clear();
@@ -1487,7 +1630,8 @@ static void mark_value(const UdonValue& v)
 
 void UdonInterpreter::collect_garbage(const std::vector<UdonEnvironment*>* env_roots,
 	const std::vector<UdonValue>* value_roots,
-	u32 time_budget_ms)
+	u32 time_budget_ms,
+	bool invalidate_caches)
 {
 	const bool has_budget = time_budget_ms > 0;
 	const auto start = std::chrono::steady_clock::now();
@@ -1526,12 +1670,32 @@ void UdonInterpreter::collect_garbage(const std::vector<UdonEnvironment*>* env_r
 		mark_value(kv.second);
 	for (auto& v : stack)
 		mark_value(v);
-	for (auto& kv : function_cache)
-		mark_value(kv.second);
+	if (!invalidate_caches)
+	{
+		for (auto& kv : function_cache)
+			mark_value(kv.second);
+	}
 	for (auto* roots : active_value_roots)
 		mark_value_roots(roots);
 	mark_env_roots(env_roots);
 	mark_value_roots(value_roots);
+
+	if (invalidate_caches)
+	{
+		function_cache.clear();
+		for (auto& fn_pair : instructions)
+		{
+			if (!fn_pair.second)
+				continue;
+			for (auto& instr : *fn_pair.second)
+			{
+				instr.cached_kind = UdonInstruction::CachedKind::None;
+				instr.cached_fn = nullptr;
+				instr.cached_builtin = UdonBuiltinFunction();
+				instr.cached_global_slot = GLOBAL_SLOT_UNKNOWN;
+			}
+		}
+	}
 
 	std::vector<UdonEnvironment*> live_envs;
 	live_envs.reserve(heap_environments.size());

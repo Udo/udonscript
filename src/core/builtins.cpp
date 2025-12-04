@@ -831,7 +831,7 @@ void register_builtins(UdonInterpreter* interp)
 			if (val > 0)
 				budget = static_cast<u32>(val);
 		}
-		interp->collect_garbage(nullptr, nullptr, budget);
+		interp->collect_garbage(nullptr, nullptr, budget, true);
 		out = make_none();
 		return true;
 	});
@@ -841,7 +841,13 @@ void register_builtins(UdonInterpreter* interp)
 		out = make_array();
 		array_set(out, "envs", make_int(static_cast<s64>(interp->heap_environments.size())));
 		array_set(out, "arrays", make_int(static_cast<s64>(interp->heap_arrays.size())));
-		array_set(out, "functions", make_int(static_cast<s64>(interp->heap_functions.size())));
+		s64 live_functions = 0;
+		for (auto* fn : interp->heap_functions)
+		{
+			if (fn && !fn->is_cache_wrapper)
+				++live_functions;
+		}
+		array_set(out, "functions", make_int(live_functions));
 		array_set(out, "stack_roots", make_int(static_cast<s64>(interp->stack.size())));
 		array_set(out, "active_env_root_sets", make_int(static_cast<s64>(interp->active_env_roots.size())));
 		array_set(out, "active_value_root_sets", make_int(static_cast<s64>(interp->active_value_roots.size())));

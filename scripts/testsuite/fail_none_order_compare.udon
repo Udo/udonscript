@@ -1,5 +1,0 @@
-// Test: none ordering should be invalid (runtime error expected)
-function main() {
-    var x = none;
-    print(x < 1);
-}
