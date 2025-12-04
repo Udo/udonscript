@@ -475,11 +475,21 @@ to_base(number, "0123456789ABCDEF")   // -> hex string
 from_base("FF", "0123456789ABCDEF")   // -> 255
 to_base(42, "01")                     // -> "101010"
 from_base("101010", "01")             // -> 42
+to_base64("data")                     // -> base64 string
+from_base64("ZGF0YQ==")               // -> "data"
 
 // Hash helpers (hex output, binary-safe input strings)
 crc32("data")
 md5("data")
 sha1("data")
+
+URI encoding/decoding:
+to_uri("a+b")           // "a%2Bb"
+from_uri("a%2Bb")       // "a+b"
+
+JSON helpers:
+to_json({x:1})
+from_json("{\"x\":1}")
 ```
 ```
 
