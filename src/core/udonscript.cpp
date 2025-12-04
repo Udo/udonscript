@@ -725,6 +725,23 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 
 				bool handled = false;
 
+				if (instr.cached_kind == UdonInstruction::CachedKind::Builtin)
+				{
+					instr.cached_builtin(interp, positional, named, call_result, inner_err);
+					handled = !inner_err.has_error;
+				}
+				else if (instr.cached_kind == UdonInstruction::CachedKind::Function && instr.cached_fn)
+				{
+					UdonValue fn_val;
+					fn_val.type = UdonValue::Type::Function;
+					fn_val.function = instr.cached_fn;
+					CodeLocation nested = interp->invoke_function(fn_val, positional, named, call_result);
+					if (nested.has_error)
+						inner_err = nested;
+					else
+						handled = true;
+				}
+
 				if (!positional.empty() && positional[0].type == UdonValue::Type::Array && positional[0].array_map)
 				{
 					UdonValue member_fn;
@@ -752,6 +769,8 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 					{
 						if (inner_err.has_error)
 							return inner_err;
+						instr.cached_kind = UdonInstruction::CachedKind::Builtin;
+						instr.cached_builtin = interp->builtins[callee].function;
 						handled = true;
 					}
 				}
@@ -764,6 +783,8 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 						CodeLocation nested = interp->invoke_function(fn_val, positional, named, call_result);
 						if (nested.has_error)
 							return nested;
+						instr.cached_kind = UdonInstruction::CachedKind::Function;
+						instr.cached_fn = fn_val.function;
 						handled = true;
 					}
 				}

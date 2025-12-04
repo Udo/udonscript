@@ -135,6 +135,16 @@ struct UdonInstruction
 	std::vector<UdonValue> operands;
 	u32 line = 0;
 	u32 column = 0;
+
+	enum class CachedKind
+	{
+		None,
+		Builtin,
+		Function
+	};
+	mutable CachedKind cached_kind = CachedKind::None;
+	mutable UdonBuiltinFunction cached_builtin;
+	mutable UdonValue::ManagedFunction* cached_fn = nullptr;
 };
 
 struct UdonEnvironment
