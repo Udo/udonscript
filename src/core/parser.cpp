@@ -2036,7 +2036,7 @@ bool Parser::parse_primary(std::vector<UdonInstruction>& body, FunctionContext& 
 				}
 				keys.push_back(key);
 
-			} while (match_symbol(","));
+			} while (match_symbol(",") && !check_symbol("}"));
 
 			if (!expect_symbol("}", "Expected '}' after object literal"))
 				return false;

@@ -317,7 +317,30 @@ void array_foreach(const UdonValue& v, const std::function<bool(const std::strin
 
 bool equal_values(const UdonValue& a, const UdonValue& b, UdonValue& out)
 {
-	if (is_numeric(a) && is_numeric(b))
+	auto is_number = [](const UdonValue& v) -> bool
+	{
+		return v.type == UdonValue::Type::Int || v.type == UdonValue::Type::Float || v.type == UdonValue::Type::Bool;
+	};
+
+	if (a.type == UdonValue::Type::None || b.type == UdonValue::Type::None)
+	{
+		out = make_bool(a.type == UdonValue::Type::None && b.type == UdonValue::Type::None);
+		return true;
+	}
+
+	if (a.type == UdonValue::Type::Array || b.type == UdonValue::Type::Array)
+	{
+		out = make_bool(a.type == UdonValue::Type::Array && b.type == UdonValue::Type::Array && a.array_map == b.array_map);
+		return true;
+	}
+
+	if (a.type == UdonValue::Type::String && b.type == UdonValue::Type::String)
+	{
+		out = make_bool(a.string_value == b.string_value);
+		return true;
+	}
+
+	if (is_number(a) && is_number(b))
 	{
 		if (is_integer_type(a) && is_integer_type(b))
 			out = make_bool(a.int_value == b.int_value);
@@ -325,50 +348,40 @@ bool equal_values(const UdonValue& a, const UdonValue& b, UdonValue& out)
 			out = make_bool(as_number(a) == as_number(b));
 		return true;
 	}
-	if (a.type == UdonValue::Type::String || b.type == UdonValue::Type::String)
-	{
-		out = make_bool(value_to_string(a) == value_to_string(b));
-		return true;
-	}
+
 	out = make_bool(false);
 	return true;
 }
 
 bool compare_values(const UdonValue& a, const UdonValue& b, UdonInstruction::OpCode op, UdonValue& out)
 {
-	if (!is_numeric(a) || !is_numeric(b))
+	auto is_number = [](const UdonValue& v) -> bool
+	{
+		return v.type == UdonValue::Type::Int || v.type == UdonValue::Type::Float || v.type == UdonValue::Type::Bool;
+	};
+
+	if (a.type == UdonValue::Type::Array || b.type == UdonValue::Type::Array)
 		return false;
 
-	if (is_integer_type(a) && is_integer_type(b))
+	double lhs = 0.0;
+	double rhs = 0.0;
+
+	if (a.type == UdonValue::Type::String || b.type == UdonValue::Type::String)
 	{
-		const s64 lhs = a.int_value;
-		const s64 rhs = b.int_value;
-		bool result = false;
-		switch (op)
-		{
-			case UdonInstruction::OpCode::LT:
-				result = lhs < rhs;
-				break;
-			case UdonInstruction::OpCode::LTE:
-				result = lhs <= rhs;
-				break;
-			case UdonInstruction::OpCode::GT:
-				result = lhs > rhs;
-				break;
-			case UdonInstruction::OpCode::GTE:
-				result = lhs >= rhs;
-				break;
-			default:
-				return false;
-		}
-		out = make_bool(result);
-		return true;
+		lhs = as_number(a);
+		rhs = as_number(b);
+	}
+	else if (is_number(a) && is_number(b))
+	{
+		lhs = as_number(a);
+		rhs = as_number(b);
+	}
+	else
+	{
+		return false;
 	}
 
-	const double lhs = as_number(a);
-	const double rhs = as_number(b);
-
-	bool result;
+	bool result = false;
 	switch (op)
 	{
 		case UdonInstruction::OpCode::LT:

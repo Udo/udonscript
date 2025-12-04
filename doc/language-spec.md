@@ -507,6 +507,11 @@ var data = {}
 data.x = 10         // Set by key
 data.y = 20
 data.name = "Point"
+// Trailing commas are allowed
+var grid = {
+    "..@@",
+    "@@@@",
+}
 ```
 
 ### Accessing Elements

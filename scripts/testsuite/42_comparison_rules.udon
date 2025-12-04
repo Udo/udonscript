@@ -1,0 +1,44 @@
+// Test: Comparison semantics (equality and ordering) across types and operators.
+function main() {
+    var arr = {a: 1};
+    var alias = arr;
+    var arr2 = {a: 1};
+
+    // Numeric-only
+    print("num_eq_true=" .. to_string(5 == 5));
+    print("num_neq_true=" .. to_string(5 != 6));
+    print("num_lt=" .. to_string(3 < 7));
+    print("num_gte=" .. to_string(7 >= 7));
+
+    // Bool/number (bools are numeric)
+    print("num_bool_eq=" .. to_string(1 == true));
+    print("num_bool_neq=" .. to_string(2 != true));
+    print("bool_lt_num=" .. to_string(true < 2));
+    print("num_gte_bool=" .. to_string(2 >= false));
+
+    // None
+    print("none_eq_none=" .. to_string(none == none));
+    print("none_eq_num=" .. to_string(none == 0));
+    print("none_neq_num=" .. to_string(none != 0));
+
+    // Strings equal only to identical strings
+    print("str_eq_same=" .. to_string("abc" == "abc"));
+    print("str_eq_diff=" .. to_string("abc" == "def"));
+    print("str_eq_num=" .. to_string("1" == 1));
+    print("str_eq_bool=" .. to_string("true" == true));
+    print("str_eq_none=" .. to_string("abc" == none));
+
+    // Ordering with any string coerces both sides to numbers
+    print("str_gt_strnum=" .. to_string("10" > "2"));
+    print("str_lt_num=" .. to_string("10" < 20));
+    print("str_gt_num=" .. to_string("30" > 20));
+    print("str_lt_nonnum=" .. to_string("abc" < 5));
+    print("str_gte_nonnum=" .. to_string("abc" >= -1));
+    print("num_gt_str=" .. to_string(5 > "2"));
+    print("bool_gt_str=" .. to_string(true > "0"));
+
+    // Arrays: identity only
+    print("array_identity_eq=" .. to_string(arr == alias));
+    print("array_diff_eq=" .. to_string(arr == arr2));
+    print("array_diff_neq=" .. to_string(arr != arr2));
+}
