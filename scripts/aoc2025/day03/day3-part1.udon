@@ -33,32 +33,43 @@ var example_banks = {
     "818181911112111"
 }
 
-function get_max_joltage_of_bank(bank_str) {
-    var highest_1 = -1
-    var highest_1_pos = -1
-    var highest_2 = -1
+var input_path = "scripts/aoc2025/day03/input.txt"
+
+function max_joltage(bank_str) {
+    var highest1 = -1
+    var highest1pos = -1
+    var highest2 = -1
     foreach(var idx, c in bank_str) {
-        var digit = to_int(c)
-        if (digit > highest_1) {
-            highest_1 = digit
-            highest_1_pos = idx.to_int()
+        if (c > highest1 && idx < bank_str.len() - 1) {
+            highest1 = c
+            highest1pos = idx
         } 
     }
     foreach(var idx, c in bank_str) {
-        if(idx.to_int() <= highest_1_pos)
+        if (c > highest2 && idx > highest1pos) {
+            highest2 = c
+        } 
+    }
+    return highest1 * 10 + highest2
+}
+
+function total_output(lines) {
+    var total = 0
+    foreach (var line in lines) {
+        var bank = trim(line)
+        if (bank.len() == 0)
             continue
-        var digit = to_int(c)
-        if (digit > highest_2 && idx.to_int() != highest_1_pos) {
-            highest_2 = digit
-        } 
+        total = total + max_joltage(bank)
     }
-    return {h1 : highest_1, h1p : highest_1_pos, h2 : highest_2}
+    return total
 }
 
 function main() {
-    print("Example banks:", example_banks)
-    foreach (var bank in example_banks) {
-        var joltage = get_max_joltage_of_bank(bank)
-        print(" Bank", bank, "-> max joltage", joltage)
-    }
+    var example_total = total_output(example_banks)
+    print("Example (expected 357):", example_total)
+
+    var input_text = read_entire_file(input_path)
+    var lines = input_text.split("\n")
+    var answer = total_output(lines)
+    print("Part 1 total output joltage:", answer)
 }

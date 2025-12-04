@@ -1,0 +1,100 @@
+/* The escalator doesn't move. The Elf explains that it probably needs more joltage to overcome the static friction of the system and hits the big red "joltage limit safety override" button. You lose count of the number of times she needs to confirm "yes, I'm sure" and decorate the lobby a bit while you wait.
+
+Now, you need to make the largest joltage by turning on exactly twelve batteries within each bank.
+
+The joltage output for the bank is still the number formed by the digits of the batteries you've turned on; the only difference is that now there will be 12 digits in each bank's joltage output instead of two.
+
+Consider again the example from before:
+
+987654321111111
+811111111111119
+234234234234278
+818181911112111
+
+Now, the joltages are much larger:
+
+    In 987654321111111, the largest joltage can be found by turning on everything except some 1s at the end to produce 987654321111.
+    In the digit sequence 811111111111119, the largest joltage can be found by turning on everything except some 1s, producing 811111111119.
+    In 234234234234278, the largest joltage can be found by turning on everything except a 2 battery, a 3 battery, and another 2 battery near the start to produce 434234234278.
+    In 818181911112111, the joltage 888911112111 is produced by turning on everything except some 1s near the front.
+
+The total output joltage is now much larger: 987654321111 + 811111111119 + 434234234278 + 888911112111 = 3121910778619.
+
+What is the new total output joltage? */
+
+var input_path = "scripts/aoc2025/day03/input.txt"
+
+var example_banks = {
+    "987654321111111",
+    "811111111111119",
+    "234234234234278",
+    "818181911112111"
+}
+
+// Greedy approach using a monotone stack, aka "remove n digits to get largest number", tbh I didn't fully understand this
+// https://leetcode.com/discuss/post/2347639/a-comprehensive-guide-and-template-for-m-irii/
+function max_joltage_k(bank_str, k) {
+    var n = bank_str.len()
+    if (k >= n)
+        k = n
+    var to_drop = n - k
+    var stack = {}
+    var top = 0
+    for (var i = 0; i < n; i = i + 1) {
+        var ch = bank_str.substr(i, 1)
+        while (to_drop > 0 && top > 0 && stack[top - 1] < ch) {
+            top = top - 1
+            to_drop = to_drop - 1
+        }
+        stack[top] = ch
+        top = top + 1
+    }
+    var result = ""
+    var limit = k
+    var idx = 0
+    while (idx < top && limit > 0) {
+        result = result .. stack[idx]
+        idx = idx + 1
+        limit = limit - 1
+    }
+    return to_int(result)
+}
+
+function max_joltage_alt(bank_str, k) {
+    var highest1 = -1
+    var highest1pos = -1
+    var highest2 = -1
+    foreach(var idx, c in bank_str) {
+        if (c > highest1 && idx < bank_str.len() - 1) {
+            highest1 = c
+            highest1pos = idx
+        } 
+    }
+    foreach(var idx, c in bank_str) {
+        if (c > highest2 && idx > highest1pos) {
+            highest2 = c
+        } 
+    }
+    return highest1 * 10 + highest2
+}
+
+function total_output(lines, k) {
+    var total = 0
+    foreach (var line in lines) {
+        var bank = trim(line)
+        if (bank.len() == 0)
+            continue
+        total = total + max_joltage_k(bank, k)
+    }
+    return total
+}
+
+function main() {
+    var example_total = total_output(example_banks, 12)
+    print("Example (expected 3121910778619):", example_total)
+
+    var input_text = read_entire_file(input_path)
+    var lines = input_text.split("\n")
+    var answer = total_output(lines, 12)
+    print("Part 2 total output joltage:", answer)
+}
