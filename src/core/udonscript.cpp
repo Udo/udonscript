@@ -896,6 +896,13 @@ static bool populate_from_managed(UdonInterpreter* interp, UdonValue::ManagedFun
 
 static bool resolve_function_by_name(UdonInterpreter* interp, const std::string& name, UdonValue& out_fn)
 {
+	auto cache_it = interp->function_cache.find(name);
+	if (cache_it != interp->function_cache.end())
+	{
+		out_fn = cache_it->second;
+		return true;
+	}
+
 	auto fn_it = interp->instructions.find(name);
 	if (fn_it == interp->instructions.end() || !fn_it->second)
 		return false;
@@ -926,6 +933,7 @@ static bool resolve_function_by_name(UdonInterpreter* interp, const std::string&
 		fn_val.function->variadic_param = vit->second;
 
 	out_fn = fn_val;
+	interp->function_cache[name] = fn_val;
 	return true;
 }
 
@@ -934,6 +942,9 @@ CodeLocation UdonInterpreter::invoke_function(const UdonValue& fn,
 	const std::unordered_map<std::string, UdonValue>& named,
 	UdonValue& out)
 {
+	ScopedRoot fn_root(this);
+	fn_root.add(fn);
+
 	CodeLocation err{};
 	err.has_error = false;
 
@@ -1005,6 +1016,7 @@ UdonValue::ManagedArray* UdonInterpreter::allocate_array()
 UdonValue::ManagedFunction* UdonInterpreter::allocate_function()
 {
 	auto* fn = new UdonValue::ManagedFunction();
+	fn->magic = 0xF00DF00DCAFEBEEFULL;
 	heap_functions.push_back(fn);
 	return fn;
 }
@@ -1242,6 +1254,7 @@ void UdonInterpreter::clear()
 	function_param_slots.clear();
 	function_scope_sizes.clear();
 	function_variadic_slot.clear();
+	function_cache.clear();
 	event_handlers.clear();
 	globals.clear();
 	stack.clear();
@@ -1513,6 +1526,8 @@ void UdonInterpreter::collect_garbage(const std::vector<UdonEnvironment*>* env_r
 		mark_value(kv.second);
 	for (auto& v : stack)
 		mark_value(v);
+	for (auto& kv : function_cache)
+		mark_value(kv.second);
 	for (auto* roots : active_value_roots)
 		mark_value_roots(roots);
 	mark_env_roots(env_roots);

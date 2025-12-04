@@ -179,6 +179,7 @@ struct UdonInterpreter
 	s32 global_init_counter = 0;
 	s32 lambda_counter = 0;
 	std::unordered_map<std::string, std::vector<std::string>> context_info;
+	std::unordered_map<std::string, UdonValue> function_cache;
 
 	UdonInterpreter();
 	~UdonInterpreter();
@@ -250,6 +251,7 @@ struct UdonValue::ManagedFunction
 	UdonBuiltinFunction native_handler; // optional native closure entrypoint
 	std::vector<UdonValue> rooted_values; // values that must stay alive with this function
 	bool marked = false;
+	u64 magic = 0;
 };
 
 struct ScopedRoot
