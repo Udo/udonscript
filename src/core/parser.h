@@ -16,10 +16,10 @@
 struct Parser
 {
 	Parser(const std::vector<Token>& tokens,
-		std::unordered_map<std::string, std::vector<UdonInstruction>>& instructions_out,
-		std::unordered_map<std::string, std::vector<std::string>>& params_out,
+		std::unordered_map<std::string, std::shared_ptr<std::vector<UdonInstruction>>>& instructions_out,
+		std::unordered_map<std::string, std::shared_ptr<std::vector<std::string>>>& params_out,
 		std::unordered_map<std::string, std::string>& variadic_out,
-		std::unordered_map<std::string, std::vector<s32>>& param_slots_out,
+		std::unordered_map<std::string, std::shared_ptr<std::vector<s32>>>& param_slots_out,
 		std::unordered_map<std::string, size_t>& scope_size_out,
 		std::unordered_map<std::string, s32>& variadic_slot_out,
 		std::unordered_map<std::string, std::vector<std::string>>& events_out,
@@ -51,10 +51,10 @@ struct Parser
 	size_t current = 0;
 	bool stop_at_colon = false;
 	CodeLocation error_location{};
-	std::unordered_map<std::string, std::vector<UdonInstruction>>& instructions;
-	std::unordered_map<std::string, std::vector<std::string>>& params;
+	std::unordered_map<std::string, std::shared_ptr<std::vector<UdonInstruction>>>& instructions;
+	std::unordered_map<std::string, std::shared_ptr<std::vector<std::string>>>& params;
 	std::unordered_map<std::string, std::string>& variadic;
-	std::unordered_map<std::string, std::vector<s32>>& param_slots;
+	std::unordered_map<std::string, std::shared_ptr<std::vector<s32>>>& param_slots;
 	std::unordered_map<std::string, size_t>& scope_sizes;
 	std::unordered_map<std::string, s32>& variadic_slot;
 	std::unordered_map<std::string, std::vector<std::string>>& events;

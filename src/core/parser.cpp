@@ -369,9 +369,9 @@ bool Parser::parse_function()
 	{
 		return !make_error(previous(), "Missing closing '}'").has_error;
 	}
-	instructions[function_name] = body;
-	params[function_name] = param_names;
-	param_slots[function_name] = fn_ctx.param_slot_indices;
+	instructions[function_name] = std::make_shared<std::vector<UdonInstruction>>(body);
+	params[function_name] = std::make_shared<std::vector<std::string>>(param_names);
+	param_slots[function_name] = std::make_shared<std::vector<s32>>(fn_ctx.param_slot_indices);
 	scope_sizes[function_name] = fn_ctx.root_slot_count();
 	if (fn_ctx.variadic_slot_index >= 0)
 		variadic_slot[function_name] = fn_ctx.variadic_slot_index;
@@ -1732,9 +1732,9 @@ bool Parser::parse_function_literal(std::vector<UdonInstruction>& body, Function
 		return !make_error(previous(), "Missing closing '}'").has_error;
 	}
 	std::string fn_name = "__lambda_" + std::to_string(lambda_counter++);
-	instructions[fn_name] = fn_body;
-	params[fn_name] = param_names;
-	param_slots[fn_name] = fn_ctx.param_slot_indices;
+	instructions[fn_name] = std::make_shared<std::vector<UdonInstruction>>(fn_body);
+	params[fn_name] = std::make_shared<std::vector<std::string>>(param_names);
+	param_slots[fn_name] = std::make_shared<std::vector<s32>>(fn_ctx.param_slot_indices);
 	scope_sizes[fn_name] = fn_ctx.root_slot_count();
 	if (fn_ctx.variadic_slot_index >= 0)
 		variadic_slot[fn_name] = fn_ctx.variadic_slot_index;

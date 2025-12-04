@@ -3,7 +3,6 @@
 #include <cctype>
 #include <iostream>
 #include <sstream>
-#include <stack>
 #include <algorithm>
 #include <unordered_set>
 #include <cmath>
@@ -55,18 +54,71 @@ std::unordered_set<std::string> collect_top_level_globals(const std::vector<Toke
 	return names;
 }
 
-bool pop_value(std::vector<UdonValue>& stack, UdonValue& out, CodeLocation& error)
+class ValueStack
 {
-	if (stack.empty())
+  public:
+	explicit ValueStack(CodeLocation& err_ref) : err(err_ref) {}
+
+	void push(const UdonValue& v)
 	{
-		error.has_error = true;
-		error.opt_error_message = "Stack underflow";
-		return false;
+		values.push_back(v);
 	}
-	out = stack.back();
-	stack.pop_back();
-	return true;
-}
+
+	bool pop(UdonValue& out)
+	{
+		if (values.empty())
+		{
+			err.has_error = true;
+			err.opt_error_message = "Stack underflow";
+			return false;
+		}
+		out = values.back();
+		values.pop_back();
+		return true;
+	}
+
+	bool pop_two(UdonValue& lhs, UdonValue& rhs)
+	{
+		if (values.size() < 2)
+		{
+			err.has_error = true;
+			err.opt_error_message = "Stack underflow";
+			return false;
+		}
+		UDON_ASSERT(values.size() >= 2);
+		rhs = values.back();
+		values.pop_back();
+		lhs = values.back();
+		values.pop_back();
+		return true;
+	}
+
+	bool empty() const
+	{
+		return values.empty();
+	}
+	size_t size() const
+	{
+		return values.size();
+	}
+	const UdonValue& peek() const
+	{
+		UDON_ASSERT(!values.empty());
+		return values.back();
+	}
+	std::vector<UdonValue>& storage()
+	{
+		return values;
+	}
+	const std::vector<UdonValue>& storage() const
+	{
+		return values;
+	}
+
+  private:
+	CodeLocation& err;
+	std::vector<UdonValue> values;
+};
 
 static bool get_property_value(const UdonValue& obj, const std::string& name, UdonValue& out)
 {
@@ -225,7 +277,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 		return ok;
 	}
 
-	std::vector<UdonValue> eval_stack;
+	ValueStack eval_stack(ok);
 	struct RootGuard
 	{
 		UdonInterpreter* interp_ptr;
@@ -242,18 +294,16 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 			interp_ptr->active_env_roots.pop_back();
 			interp_ptr->active_value_roots.pop_back();
 		}
-	} root_guard(interp, &env_stack, &eval_stack);
+	} root_guard(interp, &env_stack, &eval_stack.storage());
 
 	auto pop_checked = [&](UdonValue& out) -> bool
 	{
-		return pop_value(eval_stack, out, ok);
+		return eval_stack.pop(out);
 	};
 
 	auto pop_two = [&](UdonValue& lhs, UdonValue& rhs) -> bool
 	{
-		if (!pop_checked(rhs) || !pop_checked(lhs))
-			return false;
-		return true;
+		return eval_stack.pop_two(lhs, rhs);
 	};
 
 	auto do_binary = [&](auto op_fn) -> bool
@@ -265,7 +315,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 		UdonValue result{};
 		if (!op_fn(lhs, rhs, result))
 			return fail("Invalid operands for arithmetic");
-		eval_stack.push_back(result);
+		eval_stack.push(result);
 		return true;
 	};
 
@@ -287,7 +337,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 		{
 			steps_since_gc = 0;
 			last_gc_time = now;
-			interp->collect_garbage(&env_stack, &eval_stack, 10);
+			interp->collect_garbage(&env_stack, &eval_stack.storage(), 10);
 		}
 	};
 
@@ -302,7 +352,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 		{
 			case UdonInstruction::OpCode::PUSH_LITERAL:
 				if (!instr.operands.empty())
-					eval_stack.push_back(instr.operands[0]);
+					eval_stack.push(instr.operands[0]);
 				break;
 			case UdonInstruction::OpCode::ENTER_SCOPE:
 			{
@@ -327,13 +377,13 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				UdonValue v{};
 				if (!load_slot(depth, slot, v))
 					return ok;
-				eval_stack.push_back(v);
+				eval_stack.push(v);
 				break;
 			}
 			case UdonInstruction::OpCode::STORE_LOCAL:
 			{
 				UdonValue v{};
-				if (!pop_value(eval_stack, v, ok))
+				if (!eval_stack.pop(v))
 					return ok;
 				const s32 depth = instr.operands.size() > 0 ? instr.operands[0].s32_value : 0;
 				const s32 slot = instr.operands.size() > 1 ? instr.operands[1].s32_value : 0;
@@ -347,16 +397,16 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				const std::string name = !instr.operands.empty() ? instr.operands[0].string_value : "";
 				auto git = interp->globals.find(name);
 				if (git != interp->globals.end())
-					eval_stack.push_back(git->second);
+					eval_stack.push(git->second);
 				else
-					eval_stack.push_back(make_none());
+					eval_stack.push(make_none());
 				break;
 			}
 			case UdonInstruction::OpCode::STORE_GLOBAL:
 			case UdonInstruction::OpCode::STORE_VAR:
 			{
 				UdonValue v{};
-				if (!pop_value(eval_stack, v, ok))
+				if (!eval_stack.pop(v))
 					return ok;
 				const std::string name = !instr.operands.empty() ? instr.operands[0].string_value : "";
 				interp->globals[name] = v;
@@ -401,7 +451,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 					fail("Cannot negate value");
 					return ok;
 				}
-				eval_stack.push_back(v);
+				eval_stack.push(v);
 				break;
 			}
 			case UdonInstruction::OpCode::GET_PROP:
@@ -413,16 +463,16 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				{
 					UdonValue idx;
 					UdonValue obj;
-					if (!pop_value(eval_stack, idx, ok))
+					if (!eval_stack.pop(idx))
 						return ok;
-					if (!pop_value(eval_stack, obj, ok))
+					if (!eval_stack.pop(obj))
 						return ok;
 					success = get_index_value(obj, idx, prop);
 				}
 				else
 				{
 					UdonValue obj;
-					if (!pop_value(eval_stack, obj, ok))
+					if (!eval_stack.pop(obj))
 						return ok;
 					success = get_property_value(obj, name, prop);
 				}
@@ -432,23 +482,23 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 					ok.opt_error_message = "Invalid property access '" + name + "'";
 					return ok;
 				}
-				eval_stack.push_back(prop);
+				eval_stack.push(prop);
 				break;
 			}
 			case UdonInstruction::OpCode::STORE_PROP:
 			{
 				const std::string name = !instr.operands.empty() ? instr.operands[0].string_value : "";
 				UdonValue value;
-				if (!pop_value(eval_stack, value, ok))
+				if (!eval_stack.pop(value))
 					return ok;
 
 				if (name == "[index]")
 				{
 					UdonValue idx;
 					UdonValue obj;
-					if (!pop_value(eval_stack, idx, ok))
+					if (!eval_stack.pop(idx))
 						return ok;
-					if (!pop_value(eval_stack, obj, ok))
+					if (!eval_stack.pop(obj))
 						return ok;
 
 					if (obj.type != UdonValue::Type::Array)
@@ -463,7 +513,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				else
 				{
 					UdonValue obj;
-					if (!pop_value(eval_stack, obj, ok))
+					if (!eval_stack.pop(obj))
 						return ok;
 
 					if (obj.type != UdonValue::Type::Array)
@@ -506,7 +556,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 					fail("Invalid operands for comparison");
 					return ok;
 				}
-				eval_stack.push_back(result);
+				eval_stack.push(result);
 				break;
 			}
 			case UdonInstruction::OpCode::JUMP:
@@ -524,7 +574,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 			case UdonInstruction::OpCode::JUMP_IF_FALSE:
 			{
 				UdonValue cond;
-				if (!pop_value(eval_stack, cond, ok))
+				if (!eval_stack.pop(cond))
 					return ok;
 				if (!is_truthy(cond))
 				{
@@ -543,17 +593,17 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 			case UdonInstruction::OpCode::TO_BOOL:
 			{
 				UdonValue v{};
-				if (!pop_value(eval_stack, v, ok))
+				if (!eval_stack.pop(v))
 					return ok;
-				eval_stack.push_back(make_bool(is_truthy(v)));
+				eval_stack.push(make_bool(is_truthy(v)));
 				break;
 			}
 			case UdonInstruction::OpCode::LOGICAL_NOT:
 			{
 				UdonValue v{};
-				if (!pop_value(eval_stack, v, ok))
+				if (!eval_stack.pop(v))
 					return ok;
-				eval_stack.push_back(make_bool(!is_truthy(v)));
+				eval_stack.push(make_bool(!is_truthy(v)));
 				break;
 			}
 			case UdonInstruction::OpCode::MAKE_CLOSURE:
@@ -568,8 +618,12 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				auto* fn_obj = interp->allocate_function();
 				fn_obj->function_name = fn_name;
 				fn_obj->captured_env = current_env;
-				fn_obj->code_ptr = &interp->instructions[fn_name];
-				fn_obj->param_ptr = &interp->function_params[fn_name];
+				auto code_it = interp->instructions.find(fn_name);
+				if (code_it != interp->instructions.end())
+					fn_obj->code_ptr = code_it->second;
+				auto param_it = interp->function_params.find(fn_name);
+				if (param_it != interp->function_params.end())
+					fn_obj->param_ptr = param_it->second;
 				auto ps_it = interp->function_param_slots.find(fn_name);
 				if (ps_it != interp->function_param_slots.end())
 					fn_obj->param_slots = ps_it->second;
@@ -585,7 +639,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				UdonValue v{};
 				v.type = UdonValue::Type::Function;
 				v.function = fn_obj;
-				eval_stack.push_back(v);
+				eval_stack.push(v);
 				break;
 			}
 			case UdonInstruction::OpCode::CALL:
@@ -603,11 +657,12 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 					arg_names.push_back(instr.operands[i].string_value);
 
 				std::vector<UdonValue> call_args(static_cast<size_t>(arg_count));
+				ScopedRoot call_arg_root(interp, &call_args);
 				std::vector<std::string> names(static_cast<size_t>(arg_count));
 				for (s32 idx = arg_count - 1; idx >= 0; --idx)
 				{
 					UdonValue v{};
-					if (!pop_value(eval_stack, v, ok))
+					if (!eval_stack.pop(v))
 						return ok;
 					call_args[static_cast<size_t>(idx)] = v;
 					if (static_cast<size_t>(idx) < arg_names.size())
@@ -615,11 +670,17 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				}
 
 				std::vector<UdonValue> positional;
+				ScopedRoot positional_root(interp, &positional);
 				std::unordered_map<std::string, UdonValue> named;
+				ScopedRoot named_root(interp);
 				for (size_t i = 0; i < call_args.size(); ++i)
 				{
 					if (!names[i].empty())
-						named[names[i]] = call_args[i];
+					{
+						auto& dest = named[names[i]];
+						dest = call_args[i];
+						named_root.add(dest);
+					}
 					else
 						positional.push_back(call_args[i]);
 				}
@@ -630,12 +691,12 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 
 				struct FunctionBinding
 				{
-					const std::vector<UdonInstruction>* code = nullptr;
-					std::vector<std::string> params;
+					std::shared_ptr<std::vector<UdonInstruction>> code;
+					std::shared_ptr<std::vector<std::string>> params;
 					std::string variadic_param;
 					UdonEnvironment* captured_env = nullptr;
 					size_t root_scope_size = 0;
-					std::vector<s32> param_slots;
+					std::shared_ptr<std::vector<s32>> param_slots;
 					s32 variadic_slot = -1;
 				};
 
@@ -643,14 +704,14 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				{
 					if (!fn_obj)
 						return false;
-					if (fn_obj->code_ptr == nullptr || fn_obj->param_ptr == nullptr)
+					if (!fn_obj->code_ptr || !fn_obj->param_ptr)
 					{
 						auto pit = interp->function_params.find(fn_obj->function_name);
 						if (pit != interp->function_params.end())
-							fn_obj->param_ptr = &pit->second;
+							fn_obj->param_ptr = pit->second;
 						auto cit = interp->instructions.find(fn_obj->function_name);
 						if (cit != interp->instructions.end())
-							fn_obj->code_ptr = &cit->second;
+							fn_obj->code_ptr = cit->second;
 					}
 					if (!fn_obj->code_ptr || !fn_obj->param_ptr)
 						return false;
@@ -660,7 +721,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 						if (ss_it != interp->function_scope_sizes.end())
 							fn_obj->root_scope_size = ss_it->second;
 					}
-					if (fn_obj->param_slots.empty())
+					if (!fn_obj->param_slots || fn_obj->param_slots->empty())
 					{
 						auto ps_it = interp->function_param_slots.find(fn_obj->function_name);
 						if (ps_it != interp->function_param_slots.end())
@@ -674,7 +735,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 					}
 
 					out.code = fn_obj->code_ptr;
-					out.params = *fn_obj->param_ptr;
+					out.params = fn_obj->param_ptr;
 					out.variadic_param = fn_obj->variadic_param;
 					out.captured_env = fn_obj->captured_env;
 					out.root_scope_size = fn_obj->root_scope_size;
@@ -686,17 +747,17 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				auto populate_from_name = [&](const std::string& name, FunctionBinding& out) -> bool
 				{
 					auto fn_it = interp->instructions.find(name);
-					if (fn_it == interp->instructions.end())
+					if (fn_it == interp->instructions.end() || !fn_it->second)
 						return false;
-					out.code = &fn_it->second;
+					out.code = fn_it->second;
 					auto pit = interp->function_params.find(name);
-					out.params = (pit != interp->function_params.end()) ? pit->second : std::vector<std::string>();
+					out.params = (pit != interp->function_params.end()) ? pit->second : std::shared_ptr<std::vector<std::string>>();
 					auto vit = interp->function_variadic.find(name);
 					out.variadic_param = (vit != interp->function_variadic.end()) ? vit->second : std::string();
 					auto ss_it = interp->function_scope_sizes.find(name);
 					out.root_scope_size = (ss_it != interp->function_scope_sizes.end()) ? ss_it->second : 0;
 					auto ps_it = interp->function_param_slots.find(name);
-					out.param_slots = (ps_it != interp->function_param_slots.end()) ? ps_it->second : std::vector<s32>();
+					out.param_slots = (ps_it != interp->function_param_slots.end()) ? ps_it->second : std::shared_ptr<std::vector<s32>>();
 					auto vs_it = interp->function_variadic_slot.find(name);
 					out.variadic_slot = (vs_it != interp->function_variadic_slot.end()) ? vs_it->second : -1;
 					out.captured_env = nullptr;
@@ -705,13 +766,22 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 
 				auto invoke_binding = [&](const FunctionBinding& b) -> CodeLocation
 				{
+					CodeLocation binding_err{};
+					binding_err.has_error = false;
+					static const std::vector<s32> empty_slots;
+					if (!b.code || !b.params)
+					{
+						binding_err.has_error = true;
+						binding_err.opt_error_message = "Function not found";
+						return binding_err;
+					}
 					return execute_function(interp,
 						*b.code,
-						b.params,
+						*b.params,
 						b.variadic_param,
 						b.captured_env,
 						b.root_scope_size,
-						b.param_slots,
+						b.param_slots ? *b.param_slots : empty_slots,
 						b.variadic_slot,
 						positional,
 						named,
@@ -963,7 +1033,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				if (callee.empty())
 				{
 					UdonValue callable;
-					if (!pop_value(eval_stack, callable, ok))
+					if (!eval_stack.pop(callable))
 						return ok;
 					if (!call_closure(callable))
 					{
@@ -971,7 +1041,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 						ok.opt_error_message = "Value is not callable";
 						return ok;
 					}
-					eval_stack.push_back(call_result);
+					eval_stack.push(call_result);
 					break;
 				}
 
@@ -1037,25 +1107,18 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				if (inner_err.has_error)
 					return inner_err;
 
-				eval_stack.push_back(call_result);
+				eval_stack.push(call_result);
 				break;
 			}
 			case UdonInstruction::OpCode::RETURN:
 			{
-				if (!eval_stack.empty())
-				{
-					return_value = eval_stack.back();
-				}
-				else
-				{
-					return_value = make_none();
-				}
+				return_value = eval_stack.empty() ? make_none() : eval_stack.peek();
 				return ok;
 			}
 			case UdonInstruction::OpCode::POP:
 			{
 				UdonValue tmp;
-				if (!pop_value(eval_stack, tmp, ok))
+				if (!eval_stack.pop(tmp))
 					return ok;
 				break;
 			}
@@ -1616,9 +1679,9 @@ CodeLocation UdonInterpreter::compile_append(const std::string& source_code)
 	if (!module_global_init.empty())
 	{
 		std::string init_fn = "__globals_init_" + std::to_string(global_init_counter++);
-		instructions[init_fn] = module_global_init;
-		function_params[init_fn] = {};
-		function_param_slots[init_fn] = {};
+		instructions[init_fn] = std::make_shared<std::vector<UdonInstruction>>(module_global_init);
+		function_params[init_fn] = std::make_shared<std::vector<std::string>>();
+		function_param_slots[init_fn] = std::make_shared<std::vector<s32>>();
 		function_scope_sizes[init_fn] = 0;
 		function_variadic_slot[init_fn] = -1;
 		UdonValue dummy;
@@ -1652,7 +1715,7 @@ CodeLocation UdonInterpreter::run(std::string function_name,
 	ok.has_error = false;
 
 	auto fn_it = instructions.find(function_name);
-	if (fn_it == instructions.end())
+	if (fn_it == instructions.end() || !fn_it->second)
 	{
 		ok.has_error = true;
 		ok.opt_error_message = "Function '" + function_name + "' not found";
@@ -1660,7 +1723,9 @@ CodeLocation UdonInterpreter::run(std::string function_name,
 	}
 
 	auto param_it = function_params.find(function_name);
-	std::vector<std::string> param_names = (param_it != function_params.end()) ? param_it->second : std::vector<std::string>();
+	std::vector<std::string> param_names = (param_it != function_params.end() && param_it->second)
+											   ? *param_it->second
+											   : std::vector<std::string>();
 	std::string variadic_param;
 	auto var_it = function_variadic.find(function_name);
 	if (var_it != function_variadic.end())
@@ -1672,15 +1737,15 @@ CodeLocation UdonInterpreter::run(std::string function_name,
 		root_scope_size = scope_it->second;
 	std::vector<s32> param_slot_lookup;
 	auto slot_it = function_param_slots.find(function_name);
-	if (slot_it != function_param_slots.end())
-		param_slot_lookup = slot_it->second;
+	if (slot_it != function_param_slots.end() && slot_it->second)
+		param_slot_lookup = *slot_it->second;
 	s32 variadic_slot = -1;
 	auto vs_it = function_variadic_slot.find(function_name);
 	if (vs_it != function_variadic_slot.end())
 		variadic_slot = vs_it->second;
 
 	return execute_function(this,
-		fn_it->second,
+		*fn_it->second,
 		param_names,
 		variadic_param,
 		nullptr,
@@ -1736,18 +1801,20 @@ std::string UdonInterpreter::dump_instructions() const
 	{
 		ss << "function " << fn.first << "(";
 		auto pit = function_params.find(fn.first);
-		if (pit != function_params.end())
+		if (pit != function_params.end() && pit->second)
 		{
-			for (size_t i = 0; i < pit->second.size(); ++i)
+			for (size_t i = 0; i < pit->second->size(); ++i)
 			{
 				if (i)
 					ss << ", ";
-				ss << pit->second[i];
+				ss << (*(pit->second))[i];
 			}
 		}
 		ss << ")\n";
 
-		const auto& body = fn.second;
+		if (!fn.second)
+			continue;
+		const auto& body = *fn.second;
 		for (size_t i = 0; i < body.size(); ++i)
 		{
 			const auto& instr = body[i];

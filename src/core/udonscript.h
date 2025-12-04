@@ -3,10 +3,19 @@
 #include "types.h"
 #include <string>
 #include <vector>
+#include <cassert>
 #include <unordered_map>
 #include <unordered_set>
 #include <memory>
 #include <functional>
+
+#ifndef UDON_ASSERT
+#ifndef NDEBUG
+#define UDON_ASSERT(expr) assert(expr)
+#else
+#define UDON_ASSERT(expr) ((void)0)
+#endif
+#endif
 
 struct CodeLocation
 {
@@ -137,10 +146,10 @@ struct UdonEnvironment
 struct UdonInterpreter
 {
 	std::unordered_map<std::string, UdonValue> globals;
-	std::unordered_map<std::string, std::vector<UdonInstruction>> instructions; // by function name
-	std::unordered_map<std::string, std::vector<std::string>> function_params; // parameter names per function
+	std::unordered_map<std::string, std::shared_ptr<std::vector<UdonInstruction>>> instructions; // by function name
+	std::unordered_map<std::string, std::shared_ptr<std::vector<std::string>>> function_params; // parameter names per function
 	std::unordered_map<std::string, std::string> function_variadic; // variadic param name per function (optional)
-	std::unordered_map<std::string, std::vector<s32>> function_param_slots; // slot index per parameter
+	std::unordered_map<std::string, std::shared_ptr<std::vector<s32>>> function_param_slots; // slot index per parameter
 	std::unordered_map<std::string, size_t> function_scope_sizes; // root scope slot counts
 	std::unordered_map<std::string, s32> function_variadic_slot; // slot index for variadic parameter if present
 	std::unordered_map<std::string, UdonBuiltinEntry> builtins;
@@ -205,11 +214,85 @@ struct UdonValue::ManagedFunction
 	std::string handler; // optional builtin handler tag
 	std::string template_body; // optional payload for template handlers
 	s32 handler_data = -1; // optional numeric payload for handlers
-	std::vector<UdonInstruction>* code_ptr = nullptr;
-	std::vector<std::string>* param_ptr = nullptr;
-	std::vector<s32> param_slots;
+	std::shared_ptr<std::vector<UdonInstruction>> code_ptr;
+	std::shared_ptr<std::vector<std::string>> param_ptr;
+	std::shared_ptr<std::vector<s32>> param_slots;
 	size_t root_scope_size = 0;
 	s32 variadic_slot = -1;
 	std::string variadic_param;
 	bool marked = false;
+};
+
+struct ScopedRoot
+{
+	ScopedRoot(UdonInterpreter* interp, std::vector<UdonValue>* external = nullptr)
+		: interpreter(interp), external_values(external)
+	{
+		if (interpreter)
+			interpreter->active_value_roots.push_back(storage());
+	}
+	~ScopedRoot()
+	{
+		if (interpreter)
+			interpreter->active_value_roots.pop_back();
+	}
+	UdonValue& add(const UdonValue& v)
+	{
+		UDON_ASSERT(storage() != nullptr);
+		storage()->push_back(v);
+		return storage()->back();
+	}
+	UdonValue& value()
+	{
+		UDON_ASSERT(storage() && !storage()->empty());
+		return storage()->back();
+	}
+	std::vector<UdonValue>& values()
+	{
+		UDON_ASSERT(storage() != nullptr);
+		return *storage();
+	}
+
+  private:
+	std::vector<UdonValue>* storage()
+	{
+		return external_values ? external_values : &owned_values;
+	}
+
+	UdonInterpreter* interpreter = nullptr;
+	std::vector<UdonValue>* external_values = nullptr;
+	std::vector<UdonValue> owned_values;
+};
+
+struct RootedArray
+{
+	explicit RootedArray(UdonInterpreter* interp) : root(interp)
+	{
+		UdonValue v{};
+		v.type = UdonValue::Type::Array;
+		v.array_map = interp ? interp->allocate_array() : nullptr;
+		root.add(v);
+	}
+	UdonValue& value()
+	{
+		return root.value();
+	}
+	ScopedRoot root;
+};
+
+struct RootedFunction
+{
+	explicit RootedFunction(UdonInterpreter* interp) : root(interp)
+	{
+		UDON_ASSERT(interp != nullptr);
+		UdonValue v{};
+		v.type = UdonValue::Type::Function;
+		v.function = interp ? interp->allocate_function() : nullptr;
+		root.add(v);
+	}
+	UdonValue& value()
+	{
+		return root.value();
+	}
+	ScopedRoot root;
 };
