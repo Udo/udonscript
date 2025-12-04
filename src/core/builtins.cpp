@@ -222,6 +222,27 @@ static std::string base64_decode(const std::string& in)
 	return out;
 }
 
+static int compare_for_sort(const UdonValue& a, const UdonValue& b)
+{
+	if (is_numeric(a) && is_numeric(b))
+	{
+		const double lhs = as_number(a);
+		const double rhs = as_number(b);
+		if (lhs < rhs)
+			return -1;
+		if (lhs > rhs)
+			return 1;
+		return 0;
+	}
+	const std::string sa = value_to_string(a);
+	const std::string sb = value_to_string(b);
+	if (sa < sb)
+		return -1;
+	if (sa > sb)
+		return 1;
+	return 0;
+}
+
 static UdonValue parse_form_data(const std::string& s, UdonInterpreter* interp)
 {
 	UdonValue out;
@@ -624,6 +645,112 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 	register_alias("array_keys", "keys");
+
+	interp->register_function("sort", "arr:any, options?:any", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	{
+		if (positional.empty() || positional[0].type != UdonValue::Type::Array || !positional[0].array_map)
+		{
+			err.has_error = true;
+			err.opt_error_message = "sort expects (array, [options])";
+			return true;
+		}
+
+		const UdonValue options = (positional.size() >= 2) ? positional[1] : make_none();
+		auto get_opt = [&options](const std::string& key, UdonValue& out_val) -> bool
+		{
+			if (options.type != UdonValue::Type::Array || !options.array_map)
+				return false;
+			auto it = options.array_map->values.find(key);
+			if (it == options.array_map->values.end())
+				return false;
+			out_val = it->second;
+			return true;
+		};
+
+		bool reverse = false;
+		bool keep_keys = false;
+		bool by_key = false;
+		UdonValue key_fn;
+		bool has_key_fn = false;
+
+		UdonValue opt;
+		if (get_opt("reverse", opt))
+			reverse = is_truthy(opt);
+		if (get_opt("keep_keys", opt))
+			keep_keys = is_truthy(opt);
+		if (get_opt("by", opt) && opt.type == UdonValue::Type::String)
+			by_key = (opt.string_value == "key");
+		if (get_opt("key", opt))
+		{
+			if (opt.type != UdonValue::Type::Function || !opt.function)
+			{
+				err.has_error = true;
+				err.opt_error_message = "sort options.key must be a function";
+				return true;
+			}
+			key_fn = opt;
+			has_key_fn = true;
+		}
+
+		struct Entry
+		{
+			std::string key;
+			UdonValue value;
+			UdonValue sort_value;
+			size_t original_index = 0;
+		};
+
+		std::vector<Entry> entries;
+		entries.reserve(positional[0].array_map->values.size());
+		size_t original_idx = 0;
+		for (const auto& kv : positional[0].array_map->values)
+		{
+			Entry e;
+			e.key = kv.first;
+			e.value = kv.second;
+			e.original_index = original_idx++;
+
+			UdonValue base = by_key ? make_string(kv.first) : kv.second;
+			if (has_key_fn)
+			{
+				std::vector<UdonValue> args;
+				args.push_back(base);
+				UdonValue key_out;
+				CodeLocation call_err = interp->invoke_function(key_fn, args, {}, key_out);
+				if (call_err.has_error)
+				{
+					err = call_err;
+					return true;
+				}
+				e.sort_value = key_out;
+			}
+			else
+			{
+				e.sort_value = base;
+			}
+			entries.push_back(e);
+		}
+
+		std::sort(entries.begin(), entries.end(), [reverse](const Entry& a, const Entry& b)
+		{
+			const int cmp = compare_for_sort(a.sort_value, b.sort_value);
+			if (cmp == 0)
+				return a.original_index < b.original_index;
+			return reverse ? (cmp > 0) : (cmp < 0);
+		});
+
+		out = make_array();
+		for (size_t i = 0; i < entries.size(); ++i)
+		{
+			const Entry& e = entries[i];
+			if (keep_keys)
+				array_set(out, e.key, e.value);
+			else
+				array_set(out, std::to_string(i), e.value);
+		}
+		return true;
+	});
+	register_alias("array_sort", "sort");
 
 	interp->register_function("array_get", "arr:any, key:any", "any", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 	{

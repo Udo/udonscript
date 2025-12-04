@@ -1,0 +1,154 @@
+/* The clerk quickly discovers that there are still invalid IDs in the ranges in your list. Maybe the young Elf was doing other silly patterns as well?
+
+Now, an ID is invalid if it is made only of some sequence of digits repeated at least twice. So, 12341234 (1234 two times), 123123123 (123 three times), 1212121212 (12 five times), and 1111111 (1 seven times) are all invalid IDs.
+
+From the same example as before:
+
+    11-22 still has two invalid IDs, 11 and 22.
+    95-115 now has two invalid IDs, 99 and 111.
+    998-1012 now has two invalid IDs, 999 and 1010.
+    1188511880-1188511890 still has one invalid ID, 1188511885.
+    222220-222224 still has one invalid ID, 222222.
+    1698522-1698528 still contains no invalid IDs.
+    446443-446449 still has one invalid ID, 446446.
+    38593856-38593862 still has one invalid ID, 38593859.
+    565653-565659 now has one invalid ID, 565656.
+    824824821-824824827 now has one invalid ID, 824824824.
+    2121212118-2121212124 now has one invalid ID, 2121212121.
+
+Adding up all the invalid IDs in this example produces 4174379265.
+
+What do you get if you add up all of the invalid IDs using these new rules? */
+
+var input_path = "scripts/aoc2025/day02/input.txt"
+
+var example_ranges = "11-22,95-115,998-1012,1188511880-1188511890,222220-222224,1698522-1698528,446443-446449,38593856-38593862,565653-565659,824824821-824824827,2121212118-2121212124"
+
+// Strategy: parse ranges, sort+merge them, generate all repeated-digit-block numbers up to the
+// maximum upper bound, and linearly scan the sorted candidates against the merged ranges to sum hits.
+function pow10(exp) {
+    var p = 1
+    for (var i = 0; i < exp; i = i + 1)
+        p = p * 10
+    return p
+}
+
+function digit_count(n) {
+    if (n == 0)
+        return 1
+    var d = 0
+    var x = n
+    while (x > 0) {
+        x = to_int(x / 10)
+        d = d + 1
+    }
+    return d
+}
+
+function parse_ranges(text) {
+    var tokens = text.split(",")
+    var ranges = []
+    for (var i = 0; i < tokens.len(); i = i + 1) {
+        var token = trim(tokens[i])
+        if (token.len() == 0)
+            continue
+        var pieces = token.split("-")
+        if (pieces.len() < 2)
+            continue
+        var lo = to_int(trim(pieces[0]))
+        var hi = to_int(trim(pieces[1]))
+        if (lo > hi) {
+            var tmp = lo
+            lo = hi
+            hi = tmp
+        }
+        ranges[ranges.len()] = {lo: lo, hi: hi}
+    }
+    return ranges
+}
+
+function merge_ranges(sorted_ranges) {
+    var merged = []
+    if (sorted_ranges.len() == 0)
+        return merged
+    var cur = {lo: sorted_ranges[0]:lo, hi: sorted_ranges[0]:hi}
+    for (var i = 1; i < sorted_ranges.len(); i = i + 1) {
+        var r = sorted_ranges[i]
+        if (r:lo <= cur:hi + 1) {
+            if (r:hi > cur:hi)
+                cur:hi = r:hi
+        } else {
+            merged[merged.len()] = cur
+            cur = {lo: r:lo, hi: r:hi}
+        }
+    }
+    merged[merged.len()] = cur
+    return merged
+}
+
+// Generate numbers consisting of a digit block repeated at least twice.
+function generate_repeated_numbers(limit) {
+    var nums = []
+    var seen = {}
+    var max_digits = digit_count(limit)
+    for (var base_len = 1; base_len <= max_digits; base_len = base_len + 1) {
+        var pow_len = pow10(base_len)
+        var min_base = pow10(base_len - 1)
+        var max_base_digits = pow_len - 1
+        var max_rep = to_int(max_digits / base_len)
+        for (var rep = 2; rep <= max_rep; rep = rep + 1) {
+            var factor = 0
+            var pow = 1
+            for (var i = 0; i < rep; i = i + 1) {
+                factor = factor + pow
+                pow = pow * pow_len
+            }
+            var max_base = to_int(limit / factor)
+            if (max_base < min_base)
+                continue
+            if (max_base > max_base_digits)
+                max_base = max_base_digits
+            for (var base = min_base; base <= max_base; base = base + 1) {
+                var n = base * factor
+                var key = to_string(n)
+                if (seen[key] == true)
+                    continue
+                seen[key] = true
+                nums[nums.len()] = n
+            }
+        }
+    }
+    return sort(nums)
+}
+
+function sum_invalid_ids(ranges) {
+    var merged = merge_ranges(sort(ranges, {key: function(r) { return r:lo }}))
+    if (merged.len() == 0)
+        return 0
+    var limit = merged[merged.len() - 1]:hi
+    var candidates = generate_repeated_numbers(limit)
+    var ridx = 0
+    var total = 0
+    for (var i = 0; i < candidates.len(); i = i + 1) {
+        var n = candidates[i]
+        while (ridx < merged.len() && n > merged[ridx]:hi)
+            ridx = ridx + 1
+        if (ridx >= merged.len())
+            break
+        if (n >= merged[ridx]:lo)
+            total = total + n
+    }
+    return total
+}
+
+function main() {
+
+    var example_total = sum_invalid_ids(parse_ranges(example_ranges))
+    print("Example check (expected 4174379265):", example_total)
+
+    var input_text = trim(read_entire_file(input_path))
+    var ranges = parse_ranges(input_text)
+    var answer = sum_invalid_ids(ranges)
+    print("Part 2 sum of invalid IDs:", answer)
+
+}

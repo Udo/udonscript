@@ -474,6 +474,8 @@ Use `keys(arr)` or `arr.keys()` to get an array of key names:
 var names = keys(arr)
 ```
 
+`sort(arr, options?)` returns a sorted copy of `arr` (does not mutate the input). Useful options: `reverse` (bool), `keep_keys` (preserve original keys instead of reindexing), `by` (`"value"` or `"key"`), and `key` (function to compute a sort key).
+
 ### Iteration
 
 Use `foreach` to iterate:

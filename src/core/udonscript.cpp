@@ -326,7 +326,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 	u32 current_line = 0;
 	u32 current_col = 0;
 	size_t steps_since_gc = 0;
-	const size_t gc_step_budget = 10'000'000;
+	const size_t gc_step_budget = 1'000'000;
 	const s64 gc_time_budget_ms = 1000;
 	auto last_gc_time = std::chrono::steady_clock::now();
 	auto maybe_collect_periodic = [&]()
