@@ -107,6 +107,7 @@ struct UdonInstruction
 		EXIT_SCOPE,
 		ADD,
 		SUB,
+		CONCAT,
 		MUL,
 		DIV,
 		MOD,

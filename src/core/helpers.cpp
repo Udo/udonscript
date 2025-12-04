@@ -144,7 +144,7 @@ std::string value_to_string(const UdonValue& v)
 
 bool is_numeric(const UdonValue& v)
 {
-	return v.type == UdonValue::Type::Int || v.type == UdonValue::Type::Float || v.type == UdonValue::Type::Bool || v.type == UdonValue::Type::None;
+	return v.type == UdonValue::Type::Int || v.type == UdonValue::Type::Float || v.type == UdonValue::Type::Bool || v.type == UdonValue::Type::None || v.type == UdonValue::Type::String || v.type == UdonValue::Type::Array;
 }
 
 bool is_integer_type(const UdonValue& v)
@@ -182,6 +182,19 @@ double as_number(const UdonValue& v)
 		return static_cast<double>(v.float_value);
 	if (v.type == UdonValue::Type::Bool)
 		return static_cast<double>(v.int_value);
+	if (v.type == UdonValue::Type::String)
+	{
+		try
+		{
+			return std::stod(v.string_value);
+		}
+		catch (...)
+		{
+			return 0.0;
+		}
+	}
+	if (v.type == UdonValue::Type::Array)
+		return static_cast<double>(array_length(v));
 	return 0.0;
 }
 
@@ -401,11 +414,6 @@ bool is_truthy(const UdonValue& v)
 
 bool add_values(const UdonValue& lhs, const UdonValue& rhs, UdonValue& out)
 {
-	if (lhs.type == UdonValue::Type::String || rhs.type == UdonValue::Type::String)
-	{
-		out = make_string(value_to_string(lhs) + value_to_string(rhs));
-		return true;
-	}
 	if (is_integer_type(lhs) && is_integer_type(rhs))
 	{
 		out = make_int(lhs.int_value + rhs.int_value);

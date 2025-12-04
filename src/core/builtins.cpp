@@ -1539,6 +1539,15 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
+	interp->register_function("concat", "parts:any...", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation&)
+	{
+		std::ostringstream ss;
+		for (const auto& v : positional)
+			ss << value_to_string(v);
+		out = make_string(ss.str());
+		return true;
+	});
+
 	interp->register_function("chr", "code:int", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)

@@ -417,12 +417,18 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 			}
 			case UdonInstruction::OpCode::ADD:
 			case UdonInstruction::OpCode::SUB:
+			case UdonInstruction::OpCode::CONCAT:
 			case UdonInstruction::OpCode::MUL:
 			case UdonInstruction::OpCode::DIV:
 			case UdonInstruction::OpCode::MOD:
 			{
 				auto op = [&](const UdonValue& lhs, const UdonValue& rhs, UdonValue& out) -> bool
 				{
+					if (instr.opcode == UdonInstruction::OpCode::CONCAT)
+					{
+						out = make_string(value_to_string(lhs) + value_to_string(rhs));
+						return true;
+					}
 					if (instr.opcode == UdonInstruction::OpCode::ADD)
 						return add_values(lhs, rhs, out);
 					if (instr.opcode == UdonInstruction::OpCode::SUB)
@@ -1304,6 +1310,9 @@ std::string UdonInterpreter::dump_instructions() const
 					break;
 				case UdonInstruction::OpCode::SUB:
 					ss << "SUB";
+					break;
+				case UdonInstruction::OpCode::CONCAT:
+					ss << "CONCAT";
 					break;
 				case UdonInstruction::OpCode::MUL:
 					ss << "MUL";

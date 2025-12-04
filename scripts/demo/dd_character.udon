@@ -65,10 +65,10 @@ function build_character() {
 	var scores = {}
 	foreach (var ability in abilities) {
 		scores[ability] = roll_4d6_drop_lowest()
-		print("  rolled " + ability + ": " + to_string(scores[ability]))
+		print("  rolled " .. ability .. ": " .. scores[ability])
 	}
 
-	print("Picking race/class... races=" + to_string(races.len()) + " classes=" + to_string(classes.len()))
+	print("Picking race/class... races=" .. races.len() .. " classes=" .. classes.len())
 	var race = pick(races)
 	var cls = pick(classes)
 	scores = apply_race_bonuses(scores, race, abilities)
@@ -102,11 +102,11 @@ function main() {
 	print("Race: " + c:race)
 	print("Class: " + c:class)
 	print("Background: " + c:background)
-	print("HP: " + to_string(c:hp))
+	print("HP: " .. c:hp)
 	print("Ability scores:")
 	var ks = c:scores.keys()
 	foreach (var k in ks) {
-		print("  " + k + ": " + to_string(c:scores[k]) + " (" + to_string(c:modifiers[k]) + ")")
+		print("  " .. k .. ": " .. c:scores[k] .. " (" .. c:modifiers[k] .. ")")
 	}
-	print("Primary stat: " + c:primary)
+	print("Primary stat: " .. c:primary)
 }

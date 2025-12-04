@@ -2,9 +2,9 @@
 function main() {
 	var a = 10;
 	var b = 5;
-	print("add:", a + b);
-	print("sub:", a - b);
-	print("mul:", a * b);
-	print("div:", a / b);
-	print("neg:", -a);
+	print("add: " .. to_string(a + b));
+	print("sub: " .. to_string(a - b));
+	print("mul: " .. to_string(a * b));
+	print("div: " .. to_string(a / b));
+	print("neg: " .. to_string(-a));
 }

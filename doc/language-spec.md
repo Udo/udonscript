@@ -203,9 +203,12 @@ x || y  // Logical OR (short-circuit)
 ### String Concatenation
 
 ```javascript
-"Hello, " + "World!"  // Result: "Hello, World!"
-"Count: " + to_string(42)  // Result: "Count: 42"
+"Hello, " .. "World!"  // Result: "Hello, World!"
+"Count: " .. to_string(42)  // Result: "Count: 42"
+concat("Hello, ", "World!") // Built-in function variant
 ```
+
+The `..` operator coerces non-strings using `to_string(...)` first (arrays become their string form, numbers/bools are stringified, none becomes `"none"`).
 
 ### Property Access
 

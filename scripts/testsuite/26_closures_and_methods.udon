@@ -33,7 +33,7 @@ function main() {
 
     var obj = {
         len: function() { return(42) },
-        custom: function(msg) { return("custom:" + msg) }
+        custom: function(msg) { return("custom:" .. msg) }
     }
     print("array property callable:", obj:len())
     print("method property:", obj:custom("ok"))

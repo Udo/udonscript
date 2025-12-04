@@ -29,11 +29,11 @@ function fibonacci_iterative(n) {
 
 // Calculate multiple fibonacci numbers
 function fibonacci_sequence(count) {
-    print("First " + to_string(count) + " Fibonacci numbers:")
+    print("First " .. count .. " Fibonacci numbers:")
     
     for (var i = 0; i < count; i = i + 1) {
         var fib = fibonacci_iterative(i)
-        print("  F(" + to_string(i) + ") = " + to_string(fib))
+        print("  F(" .. i .. ") = " .. fib)
     }
 }
 
@@ -79,11 +79,11 @@ function main() {
     print("=== Individual Calculations ===")
     var n = 20
     var result = fibonacci_iterative(n)
-    print("F(" + to_string(n) + ") = " + to_string(result))
+    print("F(" .. n .. ") = " .. result)
     
     n = 30
     result = fibonacci_iterative(n)
-    print("F(" + to_string(n) + ") = " + to_string(result))
+    print("F(" .. n .. ") = " .. result)
     print("")
     
     // Check if numbers are fibonacci
@@ -99,35 +99,35 @@ function main() {
     if (is_fib) {
         status = "IS"
     }
-    print(to_string(test1) + " " + status + " a Fibonacci number")
+    print(test1 .. " " .. status .. " a Fibonacci number")
     
     is_fib = is_fibonacci(test2)
     status = "NOT"
     if (is_fib) {
         status = "IS"
     }
-    print(to_string(test2) + " " + status + " a Fibonacci number")
+    print(test2 .. " " .. status .. " a Fibonacci number")
     
     is_fib = is_fibonacci(test3)
     status = "NOT"
     if (is_fib) {
         status = "IS"
     }
-    print(to_string(test3) + " " + status + " a Fibonacci number")
+    print(test3 .. " " .. status .. " a Fibonacci number")
     
     is_fib = is_fibonacci(test4)
     status = "NOT"
     if (is_fib) {
         status = "IS"
     }
-    print(to_string(test4) + " " + status + " a Fibonacci number")
+    print(test4 .. " " .. status .. " a Fibonacci number")
     
     is_fib = is_fibonacci(test5)
     status = "NOT"
     if (is_fib) {
         status = "IS"
     }
-    print(to_string(test5) + " " + status + " a Fibonacci number")
+    print(test5 .. " " .. status .. " a Fibonacci number")
     print("")
     
     // Golden ratio approximation
@@ -137,7 +137,7 @@ function main() {
     
     for (var i = 5; i <= 20; i = i + 5) {
         var ratio = golden_ratio_approximation(i)
-        print("F(" + to_string(i) + ") / F(" + to_string(i - 1) + ") = " + to_string(ratio))
+        print("F(" .. i .. ") / F(" .. (i - 1) .. ") = " .. ratio)
     }
     print("")
     
@@ -147,8 +147,8 @@ function main() {
     var rec_result = fibonacci_recursive(small_n)
     var iter_result = fibonacci_iterative(small_n)
     
-    print("Recursive F(" + to_string(small_n) + ") = " + to_string(rec_result))
-    print("Iterative F(" + to_string(small_n) + ") = " + to_string(iter_result))
+    print("Recursive F(" .. small_n .. ") = " .. rec_result)
+    print("Iterative F(" .. small_n .. ") = " .. iter_result)
     
     if (rec_result == iter_result) {
         print("✓ Both methods agree!")

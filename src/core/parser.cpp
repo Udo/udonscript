@@ -1487,6 +1487,12 @@ bool Parser::parse_additive(std::vector<UdonInstruction>& body, FunctionContext&
 				return false;
 			emit(body, UdonInstruction::OpCode::SUB);
 		}
+		else if (match_symbol(".."))
+		{
+			if (!parse_multiplicative(body, ctx))
+				return false;
+			emit(body, UdonInstruction::OpCode::CONCAT);
+		}
 		else
 		{
 			break;

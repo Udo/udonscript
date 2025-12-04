@@ -6,5 +6,5 @@ function add(a, b) {
 }
 
 function hello(name) {
-    return("hi " + name)
+    return("hi " .. name)
 }

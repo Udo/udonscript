@@ -26,7 +26,7 @@ function get_tile(g, x, y) {
 }
 
 function encode(x, y) {
-    return(to_string(x) + "," + to_string(y))
+    return(x .. "," .. y)
 }
 
 function shuffle_dirs() {

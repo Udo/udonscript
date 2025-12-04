@@ -338,6 +338,14 @@ std::vector<Token> tokenize_source(const std::string& source_code,
 				push_token(Token::Type::Symbol, sym, tok_line, tok_col);
 				continue;
 			}
+			if (c == '.' && n == '.')
+			{
+				sym = "..";
+				i += 2;
+				column += 2;
+				push_token(Token::Type::Symbol, sym, tok_line, tok_col);
+				continue;
+			}
 			if ((c == '=' || c == '!' || c == '<' || c == '>') && n == '=')
 			{
 				sym = std::string() + c + "=";

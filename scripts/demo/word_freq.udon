@@ -35,6 +35,6 @@ function main() {
 		}
 	}
 	foreach (var _, key in keys) {
-		print(key + ": " + to_string(freq[key]))
+		print(key .. ": " .. freq[key])
 	}
 }
