@@ -1422,8 +1422,12 @@ static void mark_value(const UdonValue& v)
 		if (v.array_map->marked)
 			return;
 		v.array_map->marked = true;
-		for (auto& kv : v.array_map->values)
-			mark_value(kv.second);
+		auto* entry = v.array_map->head;
+		while (entry)
+		{
+			mark_value(entry->value);
+			entry = entry->next;
+		}
 		return;
 	}
 	if (v.type == UdonValue::Type::Function && v.function)

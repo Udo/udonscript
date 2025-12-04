@@ -2,6 +2,7 @@
 #include <sstream>
 #include <cmath>
 #include <memory>
+#include <functional>
 
 UdonValue make_none()
 {
@@ -49,6 +50,17 @@ UdonValue make_array()
 	else
 		v.array_map = new UdonValue::ManagedArray();
 	return v;
+}
+
+UdonValue::ManagedArray::~ManagedArray()
+{
+	Entry* e = head;
+	while (e)
+	{
+		Entry* next = e->next;
+		delete e;
+		e = next;
+	}
 }
 
 void ensure_array(UdonValue& v)
@@ -101,17 +113,18 @@ std::string value_to_string(const UdonValue& v)
 			if (v.array_map)
 			{
 				size_t count = 0;
-				for (const auto& kv : v.array_map->values)
+				array_foreach(v, [&](const std::string& k, const UdonValue& val)
 				{
 					if (count > 0)
 						ss << ", ";
-					ss << kv.first << ": " << value_to_string(kv.second);
+					ss << k << ": " << value_to_string(val);
 					if (++count > 8)
 					{
 						ss << "...";
-						break;
+						return false;
 					}
-				}
+					return true;
+				});
 			}
 			ss << "]";
 			break;
@@ -198,17 +211,95 @@ bool array_get(const UdonValue& v, const std::string& key, UdonValue& out)
 {
 	if (v.type != UdonValue::Type::Array || !v.array_map)
 		return false;
-	auto it = v.array_map->values.find(key);
-	if (it == v.array_map->values.end())
+	auto it = v.array_map->index.find(key);
+	if (it == v.array_map->index.end())
 		return false;
-	out = it->second;
+	out = it->second->value;
 	return true;
 }
 
 void array_set(UdonValue& v, const std::string& key, const UdonValue& value)
 {
 	ensure_array(v);
-	v.array_map->values[key] = value;
+	auto it = v.array_map->index.find(key);
+	if (it != v.array_map->index.end())
+	{
+		it->second->value = value;
+		return;
+	}
+	auto* entry = new UdonValue::ManagedArray::Entry();
+	entry->key = key;
+	entry->value = value;
+	entry->prev = v.array_map->tail;
+	if (v.array_map->tail)
+		v.array_map->tail->next = entry;
+	v.array_map->tail = entry;
+	if (!v.array_map->head)
+		v.array_map->head = entry;
+	v.array_map->index[key] = entry;
+	v.array_map->size++;
+}
+
+bool array_delete(UdonValue& v, const std::string& key, UdonValue* out)
+{
+	if (v.type != UdonValue::Type::Array || !v.array_map)
+		return false;
+	auto it = v.array_map->index.find(key);
+	if (it == v.array_map->index.end())
+		return false;
+	auto* entry = it->second;
+	if (out)
+		*out = entry->value;
+	if (entry->prev)
+		entry->prev->next = entry->next;
+	else
+		v.array_map->head = entry->next;
+	if (entry->next)
+		entry->next->prev = entry->prev;
+	else
+		v.array_map->tail = entry->prev;
+	v.array_map->index.erase(it);
+	if (v.array_map->size > 0)
+		v.array_map->size--;
+	delete entry;
+	return true;
+}
+
+void array_clear(UdonValue& v)
+{
+	if (v.type != UdonValue::Type::Array || !v.array_map)
+		return;
+	auto* arr = v.array_map;
+	auto* e = arr->head;
+	while (e)
+	{
+		auto* next = e->next;
+		delete e;
+		e = next;
+	}
+	arr->index.clear();
+	arr->head = arr->tail = nullptr;
+	arr->size = 0;
+}
+
+size_t array_length(const UdonValue& v)
+{
+	if (v.type != UdonValue::Type::Array || !v.array_map)
+		return 0;
+	return v.array_map->size;
+}
+
+void array_foreach(const UdonValue& v, const std::function<bool(const std::string&, const UdonValue&)>& fn)
+{
+	if (v.type != UdonValue::Type::Array || !v.array_map)
+		return;
+	auto* entry = v.array_map->head;
+	while (entry)
+	{
+		if (!fn(entry->key, entry->value))
+			break;
+		entry = entry->next;
+	}
 }
 
 bool equal_values(const UdonValue& a, const UdonValue& b, UdonValue& out)
@@ -300,7 +391,7 @@ bool is_truthy(const UdonValue& v)
 		case UdonValue::Type::String:
 			return !v.string_value.empty();
 		case UdonValue::Type::Array:
-			return v.array_map && !v.array_map->values.empty();
+			return v.array_map && v.array_map->size > 0;
 		case UdonValue::Type::Function:
 			return v.function != nullptr;
 		default:

@@ -122,13 +122,14 @@ static std::string to_json(const UdonValue& v)
 			std::ostringstream ss;
 			ss << "{";
 			bool first = true;
-			for (const auto& kv : v.array_map->values)
+			array_foreach(v, [&](const std::string& k, const UdonValue& val)
 			{
 				if (!first)
 					ss << ",";
 				first = false;
-				ss << "\"" << json_escape(kv.first) << "\":" << to_json(kv.second);
-			}
+				ss << "\"" << json_escape(k) << "\":" << to_json(val);
+				return true;
+			});
 			ss << "}";
 			return ss.str();
 		}
@@ -624,10 +625,31 @@ void register_builtins(UdonInterpreter* interp)
 		int idx = 0;
 		if (positional[0].type == UdonValue::Type::Array && positional[0].array_map)
 		{
-			for (const auto& kv : positional[0].array_map->values)
+			std::vector<std::string> key_list;
+			key_list.reserve(array_length(positional[0]));
+			array_foreach(positional[0], [&](const std::string& k, const UdonValue&)
+			{
+				key_list.push_back(k);
+				return true;
+			});
+			std::sort(key_list.begin(), key_list.end(), [](const std::string& a, const std::string& b)
+			{
+				char* end_a = nullptr;
+				char* end_b = nullptr;
+				const s64 ia = std::strtoll(a.c_str(), &end_a, 10);
+				const s64 ib = std::strtoll(b.c_str(), &end_b, 10);
+				const bool a_num = end_a && *end_a == '\0';
+				const bool b_num = end_b && *end_b == '\0';
+				if (a_num && b_num)
+					return ia < ib;
+				if (a_num != b_num)
+					return a_num; // numeric keys before non-numeric
+				return a < b;
+			});
+			for (const auto& key : key_list)
 			{
 				std::string idx_str = std::to_string(idx);
-				array_set(out, idx_str, make_string(kv.first));
+				array_set(out, idx_str, make_string(key));
 				idx++;
 			}
 		}
@@ -660,10 +682,8 @@ void register_builtins(UdonInterpreter* interp)
 		{
 			if (options.type != UdonValue::Type::Array || !options.array_map)
 				return false;
-			auto it = options.array_map->values.find(key);
-			if (it == options.array_map->values.end())
+			if (!array_get(options, key, out_val))
 				return false;
-			out_val = it->second;
 			return true;
 		};
 
@@ -701,16 +721,16 @@ void register_builtins(UdonInterpreter* interp)
 		};
 
 		std::vector<Entry> entries;
-		entries.reserve(positional[0].array_map->values.size());
+		entries.reserve(array_length(positional[0]));
 		size_t original_idx = 0;
-		for (const auto& kv : positional[0].array_map->values)
+		array_foreach(positional[0], [&](const std::string& k, const UdonValue& v)
 		{
 			Entry e;
-			e.key = kv.first;
-			e.value = kv.second;
+			e.key = k;
+			e.value = v;
 			e.original_index = original_idx++;
 
-			UdonValue base = by_key ? make_string(kv.first) : kv.second;
+			UdonValue base = by_key ? make_string(k) : v;
 			if (has_key_fn)
 			{
 				std::vector<UdonValue> args;
@@ -729,7 +749,8 @@ void register_builtins(UdonInterpreter* interp)
 				e.sort_value = base;
 			}
 			entries.push_back(e);
-		}
+			return true;
+		});
 
 		std::sort(entries.begin(), entries.end(), [reverse](const Entry& a, const Entry& b)
 		{
@@ -751,6 +772,58 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 	register_alias("array_sort", "sort");
+
+	interp->register_function("ksort", "arr:any, options?:any", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	{
+		if (positional.empty() || positional[0].type != UdonValue::Type::Array || !positional[0].array_map)
+		{
+			err.has_error = true;
+			err.opt_error_message = "ksort expects (array, [options])";
+			return true;
+		}
+		bool reverse = false;
+		if (positional.size() >= 2 && positional[1].type == UdonValue::Type::Array)
+		{
+			UdonValue opt;
+			if (array_get(positional[1], "reverse", opt))
+				reverse = is_truthy(opt);
+		}
+		std::vector<std::pair<std::string, UdonValue>> entries;
+		entries.reserve(array_length(positional[0]));
+		array_foreach(positional[0], [&](const std::string& k, const UdonValue& v)
+		{
+			entries.emplace_back(k, v);
+			return true;
+		});
+
+		auto key_cmp = [](const std::string& a, const std::string& b) -> bool
+		{
+			char* end_a = nullptr;
+			char* end_b = nullptr;
+			const s64 ia = std::strtoll(a.c_str(), &end_a, 10);
+			const s64 ib = std::strtoll(b.c_str(), &end_b, 10);
+			const bool a_num = end_a && *end_a == '\0';
+			const bool b_num = end_b && *end_b == '\0';
+			if (a_num && b_num)
+				return ia < ib;
+			if (a_num != b_num)
+				return a_num;
+			return a < b;
+		};
+
+		std::sort(entries.begin(), entries.end(), [&](const auto& lhs, const auto& rhs)
+		{
+			if (lhs.first == rhs.first)
+				return false;
+			return reverse ? key_cmp(rhs.first, lhs.first) : key_cmp(lhs.first, rhs.first);
+		});
+
+		out = make_array();
+		for (const auto& kv : entries)
+			array_set(out, kv.first, kv.second);
+		return true;
+	});
+	register_alias("array_ksort", "ksort");
 
 	interp->register_function("array_get", "arr:any, key:any", "any", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 	{
@@ -1439,19 +1512,20 @@ void register_builtins(UdonInterpreter* interp)
 		}
 		std::string delim = value_to_string(positional[1]);
 		std::vector<std::pair<int, std::string>> elems;
-		for (const auto& kv : positional[0].array_map->values)
+		array_foreach(positional[0], [&](const std::string& k, const UdonValue& v)
 		{
 			int idx = 0;
 			try
 			{
-				idx = std::stoll(kv.first);
+				idx = std::stoll(k);
 			}
 			catch (...)
 			{
-				continue;
+				return true;
 			}
-			elems.emplace_back(idx, value_to_string(kv.second));
-		}
+			elems.emplace_back(idx, value_to_string(v));
+			return true;
+		});
 		std::sort(elems.begin(), elems.end(), [](auto& a, auto& b)
 		{ return a.first < b.first; });
 		std::ostringstream ss;
@@ -1515,7 +1589,7 @@ void register_builtins(UdonInterpreter* interp)
 		if (v.type == UdonValue::Type::String)
 			out = make_int(static_cast<s64>(v.string_value.size()));
 		else if (v.type == UdonValue::Type::Array && v.array_map)
-			out = make_int(static_cast<s64>(v.array_map->values.size()));
+			out = make_int(static_cast<s64>(array_length(v)));
 		else
 			out = make_int(0);
 		return true;
@@ -1538,7 +1612,13 @@ void register_builtins(UdonInterpreter* interp)
 		{
 			std::unordered_map<std::string, UdonValue> replacements;
 			if (!positional.empty() && positional[0].type == UdonValue::Type::Array && positional[0].array_map)
-				replacements = positional[0].array_map->values;
+			{
+				array_foreach(positional[0], [&](const std::string& k, const UdonValue& v)
+				{
+					replacements[k] = v;
+					return true;
+				});
+			}
 			for (const auto& kv : named)
 				replacements[kv.first] = kv.second;
 
@@ -1597,7 +1677,13 @@ void register_builtins(UdonInterpreter* interp)
 		{
 			if (v.type != UdonValue::Type::Array || !v.array_map)
 				return {};
-			return v.array_map->values;
+			std::unordered_map<std::string, UdonValue> out;
+			array_foreach(v, [&](const std::string& k, const UdonValue& val)
+			{
+				out[k] = val;
+				return true;
+			});
+			return out;
 		};
 
 		std::unordered_map<std::string, UdonValue> components = (positional.size() >= 2) ? convert_map(positional[1]) : std::unordered_map<std::string, UdonValue>{};
@@ -1626,7 +1712,13 @@ void register_builtins(UdonInterpreter* interp)
 		{
 			std::unordered_map<std::string, UdonValue> props;
 			if (!positional.empty() && positional[0].type == UdonValue::Type::Array && positional[0].array_map)
-				props = positional[0].array_map->values;
+			{
+				array_foreach(positional[0], [&](const std::string& k, const UdonValue& val)
+				{
+					props[k] = val;
+					return true;
+				});
+			}
 			for (const auto& kv : named)
 				props[kv.first] = kv.second;
 
@@ -1827,15 +1919,16 @@ void register_builtins(UdonInterpreter* interp)
 		}
 		else if (hay.type == UdonValue::Type::Array && hay.array_map)
 		{
-			for (const auto& kv : hay.array_map->values)
+			array_foreach(hay, [&](const std::string&, const UdonValue& val)
 			{
 				UdonValue tmp;
-				if (equal_values(kv.second, needle, tmp) && tmp.int_value)
+				if (equal_values(val, needle, tmp) && tmp.int_value)
 				{
 					found = true;
-					break;
+					return false;
 				}
-			}
+				return true;
+			});
 		}
 		out = make_bool(found);
 		return true;
@@ -2037,7 +2130,7 @@ void register_builtins(UdonInterpreter* interp)
 			err.opt_error_message = "push expects (array, UdonValue)";
 			return true;
 		}
-		int idx = static_cast<int>(positional[0].array_map->values.size());
+		int idx = static_cast<int>(array_length(positional[0]));
 		array_set(const_cast<UdonValue&>(positional[0]), std::to_string(idx), positional[1]);
 		out = make_none();
 		return true;
@@ -2058,18 +2151,19 @@ void register_builtins(UdonInterpreter* interp)
 		else
 		{
 			s64 max_idx = -1;
-			for (const auto& kv : arr.array_map->values)
+			array_foreach(arr, [&](const std::string& k, const UdonValue&)
 			{
 				try
 				{
-					s64 k = std::stoll(kv.first);
-					if (k > max_idx)
-						max_idx = k;
+					s64 parsed = std::stoll(k);
+					if (parsed > max_idx)
+						max_idx = parsed;
 				}
 				catch (...)
 				{
 				}
-			}
+				return true;
+			});
 			if (max_idx >= 0)
 				key = std::to_string(max_idx);
 		}
@@ -2078,14 +2172,8 @@ void register_builtins(UdonInterpreter* interp)
 			out = make_none();
 			return true;
 		}
-		auto it = arr.array_map->values.find(key);
-		if (it == arr.array_map->values.end())
-		{
+		if (!array_delete(arr, key, &out))
 			out = make_none();
-			return true;
-		}
-		out = it->second;
-		arr.array_map->values.erase(it);
 		return true;
 	});
 
@@ -2099,14 +2187,8 @@ void register_builtins(UdonInterpreter* interp)
 		}
 		UdonValue arr = positional[0];
 		std::string key = key_from_value(positional[1]);
-		auto it = arr.array_map->values.find(key);
-		if (it == arr.array_map->values.end())
-		{
+		if (!array_delete(arr, key, &out))
 			out = make_none();
-			return true;
-		}
-		out = it->second;
-		arr.array_map->values.erase(it);
 		return true;
 	});
 
@@ -2120,16 +2202,17 @@ void register_builtins(UdonInterpreter* interp)
 		}
 		UdonValue arr = positional[0];
 		std::vector<s64> indices;
-		for (const auto& kv : arr.array_map->values)
+		array_foreach(arr, [&](const std::string& k, const UdonValue&)
 		{
 			try
 			{
-				indices.push_back(std::stoll(kv.first));
+				indices.push_back(std::stoll(k));
 			}
 			catch (...)
 			{
 			}
-		}
+			return true;
+		});
 		if (indices.empty())
 		{
 			out = make_none();
@@ -2137,30 +2220,33 @@ void register_builtins(UdonInterpreter* interp)
 		}
 		std::sort(indices.begin(), indices.end());
 		std::string first_key = std::to_string(indices.front());
-		auto it_first = arr.array_map->values.find(first_key);
-		out = (it_first != arr.array_map->values.end()) ? it_first->second : make_none();
+		if (!array_delete(arr, first_key, &out))
+			out = make_none();
 
-		std::unordered_map<std::string, UdonValue> new_values;
-		new_values.reserve(arr.array_map->values.size());
-		for (const auto& kv : arr.array_map->values)
+		std::vector<std::pair<std::string, UdonValue>> rebuild;
+		array_foreach(arr, [&](const std::string& k, const UdonValue& v)
 		{
 			try
 			{
-				(void)std::stoll(kv.first);
+				(void)std::stoll(k);
+				return true;
 			}
 			catch (...)
 			{
-				new_values[kv.first] = kv.second;
 			}
-		}
+			rebuild.push_back({ k, v });
+			return true;
+		});
 		for (size_t i = 1; i < indices.size(); ++i)
 		{
 			std::string orig = std::to_string(indices[i]);
-			auto it = arr.array_map->values.find(orig);
-			if (it != arr.array_map->values.end())
-				new_values[std::to_string(i - 1)] = it->second;
+			UdonValue val;
+			if (array_get(arr, orig, val))
+				rebuild.push_back({ std::to_string(i - 1), val });
 		}
-		arr.array_map->values.swap(new_values);
+		array_clear(arr);
+		for (const auto& kv : rebuild)
+			array_set(arr, kv.first, kv.second);
 		return true;
 	});
 
@@ -2174,40 +2260,44 @@ void register_builtins(UdonInterpreter* interp)
 		}
 		UdonValue arr = positional[0];
 		std::vector<s64> indices;
-		for (const auto& kv : arr.array_map->values)
+		array_foreach(arr, [&](const std::string& k, const UdonValue&)
 		{
 			try
 			{
-				indices.push_back(std::stoll(kv.first));
+				indices.push_back(std::stoll(k));
 			}
 			catch (...)
 			{
 			}
-		}
+			return true;
+		});
 		std::sort(indices.begin(), indices.end());
 
-		std::unordered_map<std::string, UdonValue> new_values;
-		new_values.reserve(arr.array_map->values.size() + 1);
-		for (const auto& kv : arr.array_map->values)
+		std::vector<std::pair<std::string, UdonValue>> rebuild;
+		array_foreach(arr, [&](const std::string& k, const UdonValue& v)
 		{
 			try
 			{
-				(void)std::stoll(kv.first);
+				(void)std::stoll(k);
+				return true;
 			}
 			catch (...)
 			{
-				new_values[kv.first] = kv.second;
 			}
-		}
-		new_values["0"] = positional[1];
+			rebuild.push_back({ k, v });
+			return true;
+		});
+		rebuild.push_back({ "0", positional[1] });
 		for (size_t i = 0; i < indices.size(); ++i)
 		{
 			std::string orig = std::to_string(indices[i]);
-			auto it = arr.array_map->values.find(orig);
-			if (it != arr.array_map->values.end())
-				new_values[std::to_string(i + 1)] = it->second;
+			UdonValue val;
+			if (array_get(arr, orig, val))
+				rebuild.push_back({ std::to_string(i + 1), val });
 		}
-		arr.array_map->values.swap(new_values);
+		array_clear(arr);
+		for (const auto& kv : rebuild)
+			array_set(arr, kv.first, kv.second);
 		out = make_none();
 		return true;
 	});

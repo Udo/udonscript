@@ -3,9 +3,9 @@ len: 5
 upper: HELLO
 lower: world
 substr: ell
-split: [2: c, 1: b, 0: a]
+split: [0: a, 1: b, 2: c]
 join: a,b,c
-glyphs: [4: o, 2: l, 3: l, 1: é, 0: h]
+glyphs: [0: h, 1: é, 2: l, 3: l, 4: o]
 contains_str: true
 uri_enc: a%2Bb
 uri_dec: a+b

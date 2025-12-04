@@ -1,5 +1,8 @@
+#pragma once
+
 #include "types.h"
 #include "udonscript.h"
+#include <functional>
 
 UdonValue make_none();
 UdonValue make_int(s64 v);
@@ -27,3 +30,7 @@ bool sub_values(const UdonValue& lhs, const UdonValue& rhs, UdonValue& out);
 bool mul_values(const UdonValue& lhs, const UdonValue& rhs, UdonValue& out);
 bool div_values(const UdonValue& lhs, const UdonValue& rhs, UdonValue& out);
 bool mod_values(const UdonValue& lhs, const UdonValue& rhs, UdonValue& out);
+bool array_delete(UdonValue& v, const std::string& key, UdonValue* out = nullptr);
+void array_clear(UdonValue& v);
+size_t array_length(const UdonValue& v);
+void array_foreach(const UdonValue& v, const std::function<bool(const std::string&, const UdonValue&)>& fn);

@@ -161,6 +161,20 @@ std::vector<std::pair<std::string, UdonValue>> ordered_entries(const ValueMap& v
 	return ordered;
 }
 
+std::vector<std::pair<std::string, UdonValue>> ordered_entries(const UdonValue& arr)
+{
+	ValueMap tmp;
+	if (arr.type == UdonValue::Type::Array && arr.array_map)
+	{
+		array_foreach(arr, [&](const std::string& k, const UdonValue& v)
+		{
+			tmp[k] = v;
+			return true;
+		});
+	}
+	return ordered_entries(tmp);
+}
+
 struct JsxParser
 {
 	explicit JsxParser(const std::string& src) : source(src), pos(0) {}
@@ -564,12 +578,25 @@ bool resolve_prop_path(const PropMap& props, const std::string& expr, UdonValue&
 		return false;
 
 	const PropMap* current = &props;
+	UdonValue current_arr = make_none();
 	for (size_t i = 0; i < segments.size(); ++i)
 	{
-		auto it = current->find(segments[i]);
-		if (it == current->end())
+		UdonValue value;
+		if (current)
+		{
+			auto it = current->find(segments[i]);
+			if (it == current->end())
+				return false;
+			value = it->second;
+		}
+		else if (current_arr.type == UdonValue::Type::Array && current_arr.array_map)
+		{
+			if (!array_get(current_arr, segments[i], value))
+				return false;
+		}
+		else
 			return false;
-		const UdonValue& value = it->second;
+
 		if (i + 1 == segments.size())
 		{
 			out = value;
@@ -577,9 +604,12 @@ bool resolve_prop_path(const PropMap& props, const std::string& expr, UdonValue&
 		}
 		if (value.type == UdonValue::Type::Array && value.array_map)
 		{
-			current = &value.array_map->values;
+			current = nullptr;
+			current_arr = value;
 			continue;
 		}
+		current = nullptr;
+		current_arr = make_none();
 		return false;
 	}
 
@@ -603,7 +633,7 @@ std::string render_style_string(const UdonValue& v)
 {
 	if (v.type != UdonValue::Type::Array || !v.array_map)
 		return value_to_string(v);
-	auto ordered = ordered_entries(v.array_map->values);
+	auto ordered = ordered_entries(v);
 	std::ostringstream ss;
 	bool first = true;
 	for (const auto& kv : ordered)
@@ -628,7 +658,7 @@ std::string render_value_plain(const UdonValue& v)
 		{
 			if (!v.array_map)
 				return "";
-			auto ordered = ordered_entries(v.array_map->values);
+			auto ordered = ordered_entries(v);
 			std::ostringstream ss;
 			bool first = true;
 			for (const auto& kv : ordered)
@@ -657,7 +687,7 @@ std::string render_value_for_text(const UdonValue& v)
 			if (!v.array_map)
 				return "";
 			std::ostringstream ss;
-			auto ordered = ordered_entries(v.array_map->values);
+			auto ordered = ordered_entries(v);
 			for (const auto& kv : ordered)
 				ss << render_value_for_text(kv.second);
 			return ss.str();
@@ -714,7 +744,7 @@ std::vector<AttrEval> evaluate_attributes(const std::vector<JsxAttribute>& attrs
 				UdonValue spread_val = resolve_expression(attr.value, props);
 				if (spread_val.type == UdonValue::Type::Array && spread_val.array_map)
 				{
-					auto ordered = ordered_entries(spread_val.array_map->values);
+					auto ordered = ordered_entries(spread_val);
 					for (const auto& kv : ordered)
 						push_attr(kv.first, kv.second, false);
 				}
@@ -785,7 +815,7 @@ UdonValue make_object_value(UdonInterpreter* interp, const ValueMap& map)
 	if (v.array_map)
 	{
 		for (const auto& kv : map)
-			v.array_map->values[kv.first] = kv.second;
+			array_set(v, kv.first, kv.second);
 	}
 	return v;
 }

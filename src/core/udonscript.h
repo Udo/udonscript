@@ -207,8 +207,21 @@ extern thread_local UdonInterpreter* g_udon_current;
 
 struct UdonValue::ManagedArray
 {
-	std::unordered_map<std::string, UdonValue> values;
+	struct Entry
+	{
+		std::string key;
+		UdonValue value;
+		Entry* prev = nullptr;
+		Entry* next = nullptr;
+	};
+
+	std::unordered_map<std::string, Entry*> index;
+	Entry* head = nullptr;
+	Entry* tail = nullptr;
+	size_t size = 0;
 	bool marked = false;
+
+	~ManagedArray();
 };
 
 struct UdonValue::ManagedFunction
