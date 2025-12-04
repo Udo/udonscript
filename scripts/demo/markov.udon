@@ -6,8 +6,8 @@ function build_model(text, order) {
 	for (var i = 0; i + order < tokens.len(); i = i + 1) {
 		var key = ""
 		for (var k = 0; k < order; k = k + 1) {
-			if (k > 0) key = key + " "
-			key = key + tokens[i + k]
+			if (k > 0) key = key .. " "
+			key = key .. tokens[i + k]
 		}
 		var next = tokens[i + order]
 		if (model[key] == none)

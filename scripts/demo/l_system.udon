@@ -11,9 +11,9 @@ function expand(axiom, iterations) {
 		for (var j = 0; j < current.len(); j = j + 1) {
 			var ch = current.substr(j, 1)
 			if (rules[ch] != none)
-				next = next + rules[ch]
+				next = next .. rules[ch]
 			else
-				next = next + ch
+				next = next .. ch
 		}
 		current = next
 	}
@@ -68,9 +68,9 @@ var encode = function(px, py) { return(px .. "," .. py) }
         for (var xx = minx; xx <= maxx; xx = xx + 1) {
             var k2 = encode(xx, yy)
             if (points[k2] != none)
-                line = line + "#"
+                line = line .. "#"
             else
-                line = line + "."
+                line = line .. "."
         }
         print(line)
     }

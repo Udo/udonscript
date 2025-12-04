@@ -98,7 +98,7 @@ function render_grid(grid, w, h) {
         var row = grid[y]
         var line = ""
         for (var x = 0; x < w; x = x + 1) {
-            line = line + row[x]
+            line = line .. row[x]
         }
         print(line)
     }

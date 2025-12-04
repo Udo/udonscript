@@ -153,7 +153,7 @@ function render(grid, width, height) {
 		for (var x = 0; x < width; x = x + 1) {
 			var ks = grid[y][x].keys()
 			var k = ks[0]
-			line = line + k
+			line = line .. k
 		}
 		print(line)
 	}
