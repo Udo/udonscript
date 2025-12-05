@@ -166,9 +166,9 @@ std::vector<std::pair<std::string, UdonValue>> ordered_entries(const UdonValue& 
 	ValueMap tmp;
 	if (arr.type == UdonValue::Type::Array && arr.array_map)
 	{
-		array_foreach(arr, [&](const std::string& k, const UdonValue& v)
+		array_foreach(arr, [&](const UdonValue& k, const UdonValue& v)
 		{
-			tmp[k] = v;
+			tmp[value_to_string(k)] = v;
 			return true;
 		});
 	}

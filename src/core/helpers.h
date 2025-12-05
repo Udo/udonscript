@@ -20,8 +20,10 @@ double as_number(const UdonValue& v);
 UdonValue wrap_number(double d, const UdonValue& lhs, const UdonValue& rhs);
 UdonValue wrap_number_unary(double d, const UdonValue& src);
 bool binary_numeric(const UdonValue& lhs, const UdonValue& rhs, double (*fn)(double, double), UdonValue& out);
-bool array_get(const UdonValue& v, const std::string& key, UdonValue& out);
-void array_set(UdonValue& v, const std::string& key, const UdonValue& value);
+bool array_get(const UdonValue& v, const UdonValue& key, UdonValue& out);
+inline bool array_get(const UdonValue& v, const std::string& key, UdonValue& out) { return array_get(v, make_string(key), out); }
+void array_set(UdonValue& v, const UdonValue& key, const UdonValue& value);
+inline void array_set(UdonValue& v, const std::string& key, const UdonValue& value) { array_set(v, make_string(key), value); }
 bool equal_values(const UdonValue& a, const UdonValue& b, UdonValue& out);
 bool compare_values(const UdonValue& a, const UdonValue& b, UdonInstruction::OpCode op, UdonValue& out);
 bool is_truthy(const UdonValue& v);
@@ -30,7 +32,13 @@ bool sub_values(const UdonValue& lhs, const UdonValue& rhs, UdonValue& out);
 bool mul_values(const UdonValue& lhs, const UdonValue& rhs, UdonValue& out);
 bool div_values(const UdonValue& lhs, const UdonValue& rhs, UdonValue& out);
 bool mod_values(const UdonValue& lhs, const UdonValue& rhs, UdonValue& out);
-bool array_delete(UdonValue& v, const std::string& key, UdonValue* out = nullptr);
+bool array_delete(UdonValue& v, const UdonValue& key, UdonValue* out = nullptr);
+inline bool array_delete(UdonValue& v, const std::string& key, UdonValue* out = nullptr) { return array_delete(v, make_string(key), out); }
 void array_clear(UdonValue& v);
 size_t array_length(const UdonValue& v);
-void array_foreach(const UdonValue& v, const std::function<bool(const std::string&, const UdonValue&)>& fn);
+void array_foreach(const UdonValue& v, const std::function<bool(const UdonValue&, const UdonValue&)>& fn);
+
+// Hashing helpers for value-keyed structures
+bool is_hashable_value(const UdonValue& v);
+size_t hash_value(const UdonValue& v);
+bool hashable_values_equal(const UdonValue& a, const UdonValue& b);

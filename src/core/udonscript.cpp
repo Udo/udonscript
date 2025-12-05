@@ -1654,6 +1654,7 @@ static void mark_value(const UdonValue& v)
 		auto* entry = v.array_map->head;
 		while (entry)
 		{
+			mark_value(entry->key);
 			mark_value(entry->value);
 			entry = entry->next;
 		}

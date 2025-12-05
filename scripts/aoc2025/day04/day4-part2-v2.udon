@@ -1,0 +1,272 @@
+/* Now, the Elves just need help accessing as much of the paper as they can.
+
+Once a roll of paper can be accessed by a forklift, it can be removed. Once a roll of paper is removed, the forklifts might be able to access more rolls of paper, which they might also be able to remove. How many total rolls of paper could the Elves remove if they keep repeating this process?
+
+Starting with the same example as above, here is one way you could remove as many rolls of paper as possible, using highlighted @ to indicate that a roll of paper is about to be removed, and using x to indicate that a roll of paper was just removed:
+
+Initial state:
+..@@.@@@@.
+@@@.@.@.@@
+@@@@@.@.@@
+@.@@@@..@.
+@@.@@@@.@@
+.@@@@@@@.@
+.@.@.@.@@@
+@.@@@.@@@@
+.@@@@@@@@.
+@.@.@@@.@.
+
+Remove 13 rolls of paper:
+..xx.xx@x.
+x@@.@.@.@@
+@@@@@.x.@@
+@.@@@@..@.
+x@.@@@@.@x
+.@@@@@@@.@
+.@.@.@.@@@
+x.@@@.@@@@
+.@@@@@@@@.
+x.x.@@@.x.
+
+Remove 12 rolls of paper:
+.......x..
+.@@.x.x.@x
+x@@@@...@@
+x.@@@@..x.
+.@.@@@@.x.
+.x@@@@@@.x
+.x.@.@.@@@
+..@@@.@@@@
+.x@@@@@@@.
+....@@@...
+
+Remove 7 rolls of paper:
+..........
+.x@.....x.
+.@@@@...xx
+..@@@@....
+.x.@@@@...
+..@@@@@@..
+...@.@.@@x
+..@@@.@@@@
+..x@@@@@@.
+....@@@...
+
+Remove 5 rolls of paper:
+..........
+..x.......
+.x@@@.....
+..@@@@....
+...@@@@...
+..x@@@@@..
+...@.@.@@.
+..x@@.@@@x
+...@@@@@@.
+....@@@...
+
+Remove 2 rolls of paper:
+..........
+..........
+..x@@.....
+..@@@@....
+...@@@@...
+...@@@@@..
+...@.@.@@.
+...@@.@@@.
+...@@@@@x.
+....@@@...
+
+Remove 1 roll of paper:
+..........
+..........
+...@@.....
+..x@@@....
+...@@@@...
+...@@@@@..
+...@.@.@@.
+...@@.@@@.
+...@@@@@..
+....@@@...
+
+Remove 1 roll of paper:
+..........
+..........
+...x@.....
+...@@@....
+...@@@@...
+...@@@@@..
+...@.@.@@.
+...@@.@@@.
+...@@@@@..
+....@@@...
+
+Remove 1 roll of paper:
+..........
+..........
+....x.....
+...@@@....
+...@@@@...
+...@@@@@..
+...@.@.@@.
+...@@.@@@.
+...@@@@@..
+....@@@...
+
+Remove 1 roll of paper:
+..........
+..........
+..........
+...x@@....
+...@@@@...
+...@@@@@..
+...@.@.@@.
+...@@.@@@.
+...@@@@@..
+....@@@...
+
+Stop once no more rolls of paper are accessible by a forklift. In this example, a total of 43 rolls of paper can be removed.
+
+Start with your original diagram. How many rolls of paper in total can be removed by the Elves and their forklifts? */
+
+var example_input = {
+    "..@@.@@@@.",
+    "@@@.@.@.@@",
+    "@@@@@.@.@@",
+    "@.@@@@..@.",
+    "@@.@@@@.@@",
+    ".@@@@@@@.@",
+    ".@.@.@.@@@",
+    "@.@@@.@@@@",
+    ".@@@@@@@@.",
+    "@.@.@@@.@."
+}
+
+var input_path = "scripts/aoc2025/day04/input.txt"
+
+function make_offsets() {
+    var arr = {}
+    var idx = 0
+    for (var dr = -1; dr <= 1; dr = dr + 1) {
+        for (var dc = -1; dc <= 1; dc = dc + 1) {
+            if (dr == 0 && dc == 0)
+                continue
+            arr[idx] = {dr, dc}
+            idx = idx + 1
+        }
+    }
+    return arr
+}
+
+var OFFSETS = make_offsets()
+
+function parse_rolls(lines) {
+    var rolls = {}
+    var width = 0
+    var height = 0
+    foreach (var _, raw in lines) {
+        var line = trim(raw)
+        if (line.len() == 0)
+            continue
+        if (width == 0)
+            width = line.len()
+        var row = {}
+        for (var col = 0; col < line.len(); col = col + 1) {
+            if (line.substr(col, 1) == "@")
+                row[col] = 1
+        }
+        rolls[height] = row
+        height = height + 1
+    }
+    return {rolls: rolls, width: width, height: height}
+}
+
+function has_roll(rolls, r, c, width, height) {
+    if (r < 0 || r >= height || c < 0 || c >= width)
+        return false
+    var row = rolls[r]
+    if (row == none)
+        return false
+    return row[c] != none
+}
+
+function adjacent_rolls(rolls, width, height, r, c) {
+    var count = 0
+    foreach (var _, delta in OFFSETS) {
+        var dr = delta[0]
+        var dc = delta[1]
+        if (has_roll(rolls, r + dr, c + dc, width, height))
+            count = count + 1
+    }
+    return count
+}
+
+function is_accessible(rolls, width, height, r, c) {
+    return adjacent_rolls(rolls, width, height, r, c) < 4
+}
+
+function count_accessible(parsed) {
+    var rolls = parsed:rolls
+    var width = parsed:width
+    var height = parsed:height
+    var total = 0
+    foreach (var r_key, row in rolls) {
+        var r = to_int(r_key)
+        foreach (var c_key, _ in row) {
+            var c = to_int(c_key)
+            if (is_accessible(rolls, width, height, r, c))
+                total = total + 1
+        }
+    }
+    return total
+}
+
+// Simulate repeat removals using row->col maps for rolls.
+function total_removed(lines) {
+    var parsed = parse_rolls(lines)
+    var rolls = parsed:rolls
+    var width = parsed:width
+    var height = parsed:height
+    var removed = 0
+    while (true) {
+        var to_remove = {}
+        foreach (var r_key, row in rolls) {
+            var r = to_int(r_key)
+            foreach (var c_key, _ in row) {
+                var c = to_int(c_key)
+                if (is_accessible(rolls, width, height, r, c)) {
+                    var bucket = to_remove[r]
+                    if (bucket == none)
+                        bucket = {}
+                    bucket[bucket.len()] = c
+                    to_remove[r] = bucket
+                }
+            }
+        }
+        if (len(to_remove) == 0)
+            break
+        foreach (var r_key, cols in to_remove) {
+            var row = rolls[r_key]
+            for (var i = 0; i < len(cols); i = i + 1) {
+                var c = cols[i]
+                delete(row, c)
+            }
+            if (len(row) == 0)
+                delete(rolls, r_key)
+            else
+                rolls[r_key] = row
+            removed = removed + len(cols)
+        }
+    }
+    return removed
+}
+
+function main() {
+    print("=== Day 4.2: Complex-plane solution ===")
+    print("Example accessible (13):", count_accessible(parse_rolls(example_input)))
+    print("Example total removed (43):", total_removed(example_input))
+
+    var input_lines = read_entire_file(input_path).split("\n")
+    var parsed_rolls = parse_rolls(input_lines)
+    print("Input accessible:", count_accessible(parsed_rolls))
+    print("Input total removed:", total_removed(input_lines))
+}

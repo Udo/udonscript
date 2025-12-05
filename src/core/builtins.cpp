@@ -122,12 +122,12 @@ static std::string to_json(const UdonValue& v)
 			std::ostringstream ss;
 			ss << "{";
 			bool first = true;
-			array_foreach(v, [&](const std::string& k, const UdonValue& val)
+			array_foreach(v, [&](const UdonValue& k, const UdonValue& val)
 			{
 				if (!first)
 					ss << ",";
 				first = false;
-				ss << "\"" << json_escape(k) << "\":" << to_json(val);
+				ss << "\"" << json_escape(value_to_string(k)) << "\":" << to_json(val);
 				return true;
 			});
 			ss << "}";
@@ -888,9 +888,9 @@ void register_builtins(UdonInterpreter* interp)
 		{
 			std::vector<std::string> key_list;
 			key_list.reserve(array_length(positional[0]));
-			array_foreach(positional[0], [&](const std::string& k, const UdonValue&)
+			array_foreach(positional[0], [&](const UdonValue& k, const UdonValue&)
 			{
-				key_list.push_back(k);
+				key_list.push_back(value_to_string(k));
 				return true;
 			});
 			std::sort(key_list.begin(), key_list.end(), [](const std::string& a, const std::string& b)
@@ -983,14 +983,14 @@ void register_builtins(UdonInterpreter* interp)
 		std::vector<Entry> entries;
 		entries.reserve(array_length(positional[0]));
 		size_t original_idx = 0;
-		array_foreach(positional[0], [&](const std::string& k, const UdonValue& v)
+		array_foreach(positional[0], [&](const UdonValue& k, const UdonValue& v)
 		{
 			Entry e;
-			e.key = k;
+			e.key = value_to_string(k);
 			e.value = v;
 			e.original_index = original_idx++;
 
-			UdonValue base = by_key ? make_string(k) : v;
+			UdonValue base = by_key ? k : v;
 			if (has_key_fn)
 			{
 				std::vector<UdonValue> args;
@@ -1049,9 +1049,9 @@ void register_builtins(UdonInterpreter* interp)
 		}
 		std::vector<std::pair<std::string, UdonValue>> entries;
 		entries.reserve(array_length(positional[0]));
-		array_foreach(positional[0], [&](const std::string& k, const UdonValue& v)
+		array_foreach(positional[0], [&](const UdonValue& k, const UdonValue& v)
 		{
-			entries.emplace_back(k, v);
+			entries.emplace_back(value_to_string(k), v);
 			return true;
 		});
 
@@ -1770,12 +1770,12 @@ void register_builtins(UdonInterpreter* interp)
 		}
 		std::string delim = value_to_string(positional[1]);
 		std::vector<std::pair<int, std::string>> elems;
-		array_foreach(positional[0], [&](const std::string& k, const UdonValue& v)
+		array_foreach(positional[0], [&](const UdonValue& k, const UdonValue& v)
 		{
 			int idx = 0;
 			try
 			{
-				idx = std::stoll(k);
+				idx = std::stoll(value_to_string(k));
 			}
 			catch (...)
 			{
@@ -2042,9 +2042,9 @@ void register_builtins(UdonInterpreter* interp)
 			std::unordered_map<std::string, UdonValue> replacements;
 			if (!positional.empty() && positional[0].type == UdonValue::Type::Array && positional[0].array_map)
 			{
-				array_foreach(positional[0], [&](const std::string& k, const UdonValue& v)
+				array_foreach(positional[0], [&](const UdonValue& k, const UdonValue& v)
 				{
-					replacements[k] = v;
+					replacements[value_to_string(k)] = v;
 					return true;
 				});
 			}
@@ -2107,9 +2107,9 @@ void register_builtins(UdonInterpreter* interp)
 			if (v.type != UdonValue::Type::Array || !v.array_map)
 				return {};
 			std::unordered_map<std::string, UdonValue> out;
-			array_foreach(v, [&](const std::string& k, const UdonValue& val)
+			array_foreach(v, [&](const UdonValue& k, const UdonValue& val)
 			{
-				out[k] = val;
+				out[value_to_string(k)] = val;
 				return true;
 			});
 			return out;
@@ -2142,9 +2142,9 @@ void register_builtins(UdonInterpreter* interp)
 			std::unordered_map<std::string, UdonValue> props;
 			if (!positional.empty() && positional[0].type == UdonValue::Type::Array && positional[0].array_map)
 			{
-				array_foreach(positional[0], [&](const std::string& k, const UdonValue& val)
+				array_foreach(positional[0], [&](const UdonValue& k, const UdonValue& val)
 				{
-					props[k] = val;
+					props[value_to_string(k)] = val;
 					return true;
 				});
 			}
@@ -2348,7 +2348,7 @@ void register_builtins(UdonInterpreter* interp)
 		}
 		else if (hay.type == UdonValue::Type::Array && hay.array_map)
 		{
-			array_foreach(hay, [&](const std::string&, const UdonValue& val)
+			array_foreach(hay, [&](const UdonValue&, const UdonValue& val)
 			{
 				UdonValue tmp;
 				if (equal_values(val, needle, tmp) && tmp.int_value)
@@ -2501,6 +2501,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
+
 	interp->register_function("range", "start:int, stop:int, step:int", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.empty() || positional.size() > 3)
@@ -2578,11 +2579,11 @@ void register_builtins(UdonInterpreter* interp)
 		else
 		{
 			s64 max_idx = -1;
-			array_foreach(arr, [&](const std::string& k, const UdonValue&)
+			array_foreach(arr, [&](const UdonValue& k, const UdonValue&)
 			{
 				try
 				{
-					s64 parsed = std::stoll(k);
+					s64 parsed = std::stoll(value_to_string(k));
 					if (parsed > max_idx)
 						max_idx = parsed;
 				}
@@ -2629,11 +2630,11 @@ void register_builtins(UdonInterpreter* interp)
 		}
 		UdonValue arr = positional[0];
 		std::vector<s64> indices;
-		array_foreach(arr, [&](const std::string& k, const UdonValue&)
+		array_foreach(arr, [&](const UdonValue& k, const UdonValue&)
 		{
 			try
 			{
-				indices.push_back(std::stoll(k));
+				indices.push_back(std::stoll(value_to_string(k)));
 			}
 			catch (...)
 			{
@@ -2651,17 +2652,18 @@ void register_builtins(UdonInterpreter* interp)
 			out = make_none();
 
 		std::vector<std::pair<std::string, UdonValue>> rebuild;
-		array_foreach(arr, [&](const std::string& k, const UdonValue& v)
+		array_foreach(arr, [&](const UdonValue& k, const UdonValue& v)
 		{
+			std::string ks = value_to_string(k);
 			try
 			{
-				(void)std::stoll(k);
+				(void)std::stoll(ks);
 				return true;
 			}
 			catch (...)
 			{
 			}
-			rebuild.push_back({ k, v });
+			rebuild.push_back({ ks, v });
 			return true;
 		});
 		for (size_t i = 1; i < indices.size(); ++i)
@@ -2687,11 +2689,11 @@ void register_builtins(UdonInterpreter* interp)
 		}
 		UdonValue arr = positional[0];
 		std::vector<s64> indices;
-		array_foreach(arr, [&](const std::string& k, const UdonValue&)
+		array_foreach(arr, [&](const UdonValue& k, const UdonValue&)
 		{
 			try
 			{
-				indices.push_back(std::stoll(k));
+				indices.push_back(std::stoll(value_to_string(k)));
 			}
 			catch (...)
 			{
@@ -2701,17 +2703,18 @@ void register_builtins(UdonInterpreter* interp)
 		std::sort(indices.begin(), indices.end());
 
 		std::vector<std::pair<std::string, UdonValue>> rebuild;
-		array_foreach(arr, [&](const std::string& k, const UdonValue& v)
+		array_foreach(arr, [&](const UdonValue& k, const UdonValue& v)
 		{
+			std::string ks = value_to_string(k);
 			try
 			{
-				(void)std::stoll(k);
+				(void)std::stoll(ks);
 				return true;
 			}
 			catch (...)
 			{
 			}
-			rebuild.push_back({ k, v });
+			rebuild.push_back({ ks, v });
 			return true;
 		});
 		rebuild.push_back({ "0", positional[1] });

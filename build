@@ -12,12 +12,19 @@ NC='\033[0m' # No Color
 
 # Default settings
 TARGET="native"
+BUILD_TYPE="debug"
 EXTRA_MAKE_ARGS=()
 
 for arg in "$@"; do
     case "$arg" in
         --clean)
             DO_CLEAN=1
+            ;;
+        --debug)
+            BUILD_TYPE="debug"
+            ;;
+        --release)
+            BUILD_TYPE="release"
             ;;
         --tests)
             DO_TESTS=1
@@ -37,7 +44,7 @@ for arg in "$@"; do
     esac
 done
 
-echo -e "${GREEN}Building UdonScript (target: ${YELLOW}${TARGET}${GREEN})...${NC}"
+echo -e "${GREEN}Building UdonScript (target: ${YELLOW}${TARGET}${GREEN}, build: ${YELLOW}${BUILD_TYPE}${GREEN})...${NC}"
 
 if [[ -n "$DO_CLEAN" ]]; then
     echo -e "${YELLOW}Cleaning build directories...${NC}"
@@ -61,6 +68,7 @@ case "$TARGET" in
 esac
 
 # Use make to build the project
+EXTRA_MAKE_ARGS+=("BUILD_TYPE=${BUILD_TYPE}")
 make "${EXTRA_MAKE_ARGS[@]}" all
 
 echo -e "${GREEN}Build complete!${NC}"

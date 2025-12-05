@@ -27,6 +27,8 @@ This compiles the core library and all programs in `src/programs/`:
 - `testrunner` - Automated test suite runner
 - `dump` - Compile-only tool that prints decoded bytecode for debugging
 
+Use `./build --release` for an optimized release build; it defaults to a debug build.
+
 ### Useful Directories
 
 - `src/core/` - Interpreter core

@@ -47,6 +47,9 @@ struct Token
 	std::string template_content;
 };
 
+template <typename T>
+class ValueHashMap;
+
 struct UdonValue
 {
 	struct ManagedArray;
@@ -78,6 +81,176 @@ struct UdonValue
 	UdonValue() : type(Type::None), ptr_value(nullptr), array_map(nullptr), function(nullptr) {}
 };
 
+// Hash helper declarations for value-keyed containers.
+bool is_hashable_value(const UdonValue& v);
+size_t hash_value(const UdonValue& v);
+bool hashable_values_equal(const UdonValue& a, const UdonValue& b);
+
+// Lightweight UdonValue-keyed hash map with separate chaining.
+template <typename T>
+class ValueHashMap
+{
+public:
+	explicit ValueHashMap(size_t initial_buckets = 16) { init_buckets(initial_buckets); }
+
+	void clear()
+	{
+		buckets.clear();
+		count = 0;
+	}
+
+	size_t size() const { return count; }
+	bool empty() const { return count == 0; }
+
+	bool contains(const UdonValue& key) const
+	{
+		return find_entry_const(key) != nullptr;
+	}
+
+	T* find(const UdonValue& key)
+	{
+		auto* entry = find_entry_mutable(key);
+		return entry ? &entry->value : nullptr;
+	}
+
+	const T* find(const UdonValue& key) const
+	{
+		auto* entry = find_entry_const(key);
+		return entry ? &entry->value : nullptr;
+	}
+
+	// Insert or overwrite. Returns false if key is not hashable.
+	bool set(const UdonValue& key, const T& value)
+	{
+		if (!is_hashable_value(key))
+			return false;
+		maybe_rehash();
+		const size_t h = hash_value(key);
+		auto& bucket = buckets[bucket_index(h)];
+		for (auto& entry : bucket)
+		{
+			if (entry.hash == h && hashable_values_equal(entry.key, key))
+			{
+				entry.value = value;
+				return true;
+			}
+		}
+		bucket.push_back(Entry{key, value, h});
+		++count;
+		return true;
+	}
+
+	bool erase(const UdonValue& key)
+	{
+		if (!is_hashable_value(key) || buckets.empty())
+			return false;
+		const size_t h = hash_value(key);
+		auto& bucket = buckets[bucket_index(h)];
+		for (size_t i = 0; i < bucket.size(); ++i)
+		{
+			auto& entry = bucket[i];
+			if (entry.hash == h && hashable_values_equal(entry.key, key))
+			{
+				bucket[i] = bucket.back();
+				bucket.pop_back();
+				--count;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	template <typename Fn>
+	void for_each(Fn&& fn)
+	{
+		for (auto& bucket : buckets)
+		{
+			for (auto& entry : bucket)
+			{
+				if (!fn(entry.key, entry.value))
+					return;
+			}
+		}
+	}
+
+private:
+	struct Entry
+	{
+		UdonValue key;
+		T value;
+		size_t hash;
+	};
+
+	std::vector<std::vector<Entry>> buckets;
+	size_t count = 0;
+	const double max_load = 0.75;
+
+	void init_buckets(size_t n)
+	{
+		if (n < 4)
+			n = 4;
+		buckets.clear();
+		buckets.resize(n);
+		count = 0;
+	}
+
+	size_t bucket_index(size_t h) const
+	{
+		UDON_ASSERT(!buckets.empty());
+		return h % buckets.size();
+	}
+
+	Entry* find_entry_mutable(const UdonValue& key)
+	{
+		if (!is_hashable_value(key) || buckets.empty())
+			return nullptr;
+		const size_t h = hash_value(key);
+		auto& bucket = buckets[bucket_index(h)];
+		for (auto& entry : bucket)
+		{
+			if (entry.hash == h && hashable_values_equal(entry.key, key))
+				return &entry;
+		}
+		return nullptr;
+	}
+
+	const Entry* find_entry_const(const UdonValue& key) const
+	{
+		if (!is_hashable_value(key) || buckets.empty())
+			return nullptr;
+		const size_t h = hash_value(key);
+		const auto& bucket = buckets[bucket_index(h)];
+		for (const auto& entry : bucket)
+		{
+			if (entry.hash == h && hashable_values_equal(entry.key, key))
+				return &entry;
+		}
+		return nullptr;
+	}
+
+	void maybe_rehash()
+	{
+		if (buckets.empty())
+		{
+			init_buckets(16);
+			return;
+		}
+		if (static_cast<double>(count + 1) <= max_load * static_cast<double>(buckets.size()))
+			return;
+		const size_t new_size = buckets.size() * 2;
+		std::vector<std::vector<Entry>> new_buckets;
+		new_buckets.resize(new_size);
+		for (auto& bucket : buckets)
+		{
+			for (auto& entry : bucket)
+			{
+				const size_t idx = entry.hash % new_size;
+				new_buckets[idx].push_back(entry);
+			}
+		}
+		buckets.swap(new_buckets);
+	}
+};
 using UdonBuiltinFunction = std::function<bool(struct UdonInterpreter*,
 	const std::vector<UdonValue>&,
 	const std::unordered_map<std::string, UdonValue>&,
@@ -238,13 +411,14 @@ struct UdonValue::ManagedArray
 {
 	struct Entry
 	{
-		std::string key;
+		UdonValue key;
 		UdonValue value;
 		Entry* prev = nullptr;
 		Entry* next = nullptr;
+		size_t hash = 0;
 	};
 
-	std::unordered_map<std::string, Entry*> index;
+	ValueHashMap<Entry*> index;
 	Entry* head = nullptr;
 	Entry* tail = nullptr;
 	size_t size = 0;

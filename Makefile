@@ -1,7 +1,18 @@
 # UdonScript Makefile
 
 CXX = g++
-CXXFLAGS = -std=c++17 -Wall -Wextra -O2 -g -Isrc
+BUILD_TYPE ?= debug
+
+COMMON_CXXFLAGS = -std=c++17 -Wall -Wextra -Isrc
+DEBUG_CXXFLAGS = -O2 -g
+RELEASE_CXXFLAGS = -O3 -DNDEBUG
+
+ifeq ($(BUILD_TYPE),release)
+	CXXFLAGS = $(COMMON_CXXFLAGS) $(RELEASE_CXXFLAGS)
+else
+	CXXFLAGS = $(COMMON_CXXFLAGS) $(DEBUG_CXXFLAGS)
+endif
+
 LDFLAGS =
 
 # Optional DWARF/libdw support for dlinspect

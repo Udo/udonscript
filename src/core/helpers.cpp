@@ -3,6 +3,7 @@
 #include <cmath>
 #include <memory>
 #include <functional>
+#include <limits>
 
 UdonValue make_none()
 {
@@ -113,11 +114,11 @@ std::string value_to_string(const UdonValue& v)
 			if (v.array_map)
 			{
 				size_t count = 0;
-				array_foreach(v, [&](const std::string& k, const UdonValue& val)
+				array_foreach(v, [&](const UdonValue& k, const UdonValue& val)
 				{
 					if (count > 0)
 						ss << ", ";
-					ss << k << ": " << value_to_string(val);
+					ss << value_to_string(k) << ": " << value_to_string(val);
 					if (++count > 8)
 					{
 						ss << "...";
@@ -220,47 +221,60 @@ bool binary_numeric(const UdonValue& lhs, const UdonValue& rhs, double (*fn)(dou
 	return true;
 }
 
-bool array_get(const UdonValue& v, const std::string& key, UdonValue& out)
+bool array_get(const UdonValue& v, const UdonValue& key_in, UdonValue& out)
 {
 	if (v.type != UdonValue::Type::Array || !v.array_map)
 		return false;
-	auto it = v.array_map->index.find(key);
-	if (it == v.array_map->index.end())
+	UdonValue key = key_in;
+	if (!is_hashable_value(key))
+		key = make_string(value_to_string(key_in));
+	auto* found = v.array_map->index.find(key);
+	if (!found || !(*found))
 		return false;
-	out = it->second->value;
+	out = (*found)->value;
 	return true;
 }
 
-void array_set(UdonValue& v, const std::string& key, const UdonValue& value)
+void array_set(UdonValue& v, const UdonValue& key_in, const UdonValue& value)
 {
 	ensure_array(v);
-	auto it = v.array_map->index.find(key);
-	if (it != v.array_map->index.end())
+	UdonValue key = key_in;
+	if (!is_hashable_value(key))
+		key = make_string(value_to_string(key_in));
+
+	const size_t h = hash_value(key);
+	if (auto* entry_ptr = v.array_map->index.find(key))
 	{
-		it->second->value = value;
+		if (*entry_ptr)
+			(*entry_ptr)->value = value;
 		return;
 	}
+
 	auto* entry = new UdonValue::ManagedArray::Entry();
 	entry->key = key;
 	entry->value = value;
+	entry->hash = h;
 	entry->prev = v.array_map->tail;
 	if (v.array_map->tail)
 		v.array_map->tail->next = entry;
 	v.array_map->tail = entry;
 	if (!v.array_map->head)
 		v.array_map->head = entry;
-	v.array_map->index[key] = entry;
+	v.array_map->index.set(key, entry);
 	v.array_map->size++;
 }
 
-bool array_delete(UdonValue& v, const std::string& key, UdonValue* out)
+bool array_delete(UdonValue& v, const UdonValue& key_in, UdonValue* out)
 {
 	if (v.type != UdonValue::Type::Array || !v.array_map)
 		return false;
-	auto it = v.array_map->index.find(key);
-	if (it == v.array_map->index.end())
+	UdonValue key = key_in;
+	if (!is_hashable_value(key))
+		key = make_string(value_to_string(key_in));
+	auto* entry_ptr = v.array_map->index.find(key);
+	if (!entry_ptr || !(*entry_ptr))
 		return false;
-	auto* entry = it->second;
+	auto* entry = *entry_ptr;
 	if (out)
 		*out = entry->value;
 	if (entry->prev)
@@ -271,7 +285,7 @@ bool array_delete(UdonValue& v, const std::string& key, UdonValue* out)
 		entry->next->prev = entry->prev;
 	else
 		v.array_map->tail = entry->prev;
-	v.array_map->index.erase(it);
+	v.array_map->index.erase(key);
 	if (v.array_map->size > 0)
 		v.array_map->size--;
 	delete entry;
@@ -302,7 +316,7 @@ size_t array_length(const UdonValue& v)
 	return v.array_map->size;
 }
 
-void array_foreach(const UdonValue& v, const std::function<bool(const std::string&, const UdonValue&)>& fn)
+void array_foreach(const UdonValue& v, const std::function<bool(const UdonValue&, const UdonValue&)>& fn)
 {
 	if (v.type != UdonValue::Type::Array || !v.array_map)
 		return;
@@ -313,6 +327,83 @@ void array_foreach(const UdonValue& v, const std::function<bool(const std::strin
 			break;
 		entry = entry->next;
 	}
+}
+
+// --- Hashing helpers for UdonValue ---
+namespace
+{
+	bool try_integral_double(double d, s64& out)
+	{
+		double int_part = 0.0;
+		if (std::modf(d, &int_part) != 0.0)
+			return false;
+		// Guard range before cast.
+		if (int_part < static_cast<double>(std::numeric_limits<s64>::min()) || int_part > static_cast<double>(std::numeric_limits<s64>::max()))
+			return false;
+		out = static_cast<s64>(int_part);
+		return true;
+	}
+}
+
+bool is_hashable_value(const UdonValue& v)
+{
+	switch (v.type)
+	{
+		case UdonValue::Type::Int:
+		case UdonValue::Type::Bool:
+		case UdonValue::Type::String:
+			return true;
+		case UdonValue::Type::Float:
+			return !std::isnan(v.float_value);
+		default:
+			return false;
+	}
+}
+
+size_t hash_value(const UdonValue& v)
+{
+	UDON_ASSERT(is_hashable_value(v));
+	switch (v.type)
+	{
+		case UdonValue::Type::Int:
+			return std::hash<s64>()(v.int_value);
+		case UdonValue::Type::Bool:
+			return std::hash<int>()(v.int_value ? 1 : 0);
+		case UdonValue::Type::String:
+			return std::hash<std::string>()(v.string_value);
+		case UdonValue::Type::Float:
+		{
+			double d = v.float_value;
+			if (d == 0.0)
+				d = 0.0; // normalize -0
+			s64 as_int = 0;
+			if (try_integral_double(d, as_int))
+				return std::hash<s64>()(as_int);
+			return std::hash<double>()(d);
+		}
+		default:
+			return 0;
+	}
+}
+
+bool hashable_values_equal(const UdonValue& a, const UdonValue& b)
+{
+	auto is_numberish = [](const UdonValue& v) -> bool
+	{
+		return v.type == UdonValue::Type::Int || v.type == UdonValue::Type::Float || v.type == UdonValue::Type::Bool;
+	};
+
+	if (a.type == UdonValue::Type::String || b.type == UdonValue::Type::String)
+		return a.type == UdonValue::Type::String && b.type == UdonValue::Type::String && a.string_value == b.string_value;
+
+	if (is_numberish(a) && is_numberish(b))
+	{
+		if (is_integer_type(a) && is_integer_type(b))
+			return a.int_value == b.int_value;
+		return as_number(a) == as_number(b);
+	}
+
+	return false;
 }
 
 bool equal_values(const UdonValue& a, const UdonValue& b, UdonValue& out)
