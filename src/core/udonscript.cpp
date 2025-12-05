@@ -257,8 +257,6 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 	}
 
 	UdonEnvironment* current_env = interp->allocate_environment(root_scope_size, captured_env);
-	std::vector<UdonEnvironment*> env_stack;
-	env_stack.push_back(current_env);
 
 	auto env_at_depth = [&](s32 depth) -> UdonEnvironment*
 	{
@@ -333,23 +331,37 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 	}
 
 	ValueStack eval_stack(ok);
-	struct RootGuard
+	struct EnvRootGuard
 	{
 		UdonInterpreter* interp_ptr;
-		std::vector<UdonEnvironment*>* envs;
+		UdonEnvironment** env_ptr;
+		EnvRootGuard(UdonInterpreter* interp_in, UdonEnvironment** env_root) : interp_ptr(interp_in), env_ptr(env_root)
+		{
+			if (interp_ptr)
+				interp_ptr->active_env_roots.push_back(env_ptr);
+		}
+		~EnvRootGuard()
+		{
+			if (interp_ptr)
+				interp_ptr->active_env_roots.pop_back();
+		}
+	} env_root_guard(interp, &current_env);
+
+	struct ValueRootGuard
+	{
+		UdonInterpreter* interp_ptr;
 		std::vector<UdonValue>* values;
-		RootGuard(UdonInterpreter* interp_in, std::vector<UdonEnvironment*>* env_ptr, std::vector<UdonValue>* val_ptr)
-			: interp_ptr(interp_in), envs(env_ptr), values(val_ptr)
+		ValueRootGuard(UdonInterpreter* interp_in, std::vector<UdonValue>* val_ptr) : interp_ptr(interp_in), values(val_ptr)
 		{
-			interp_ptr->active_env_roots.push_back(envs);
-			interp_ptr->active_value_roots.push_back(values);
+			if (interp_ptr)
+				interp_ptr->active_value_roots.push_back(values);
 		}
-		~RootGuard()
+		~ValueRootGuard()
 		{
-			interp_ptr->active_env_roots.pop_back();
-			interp_ptr->active_value_roots.pop_back();
+			if (interp_ptr)
+				interp_ptr->active_value_roots.pop_back();
 		}
-	} root_guard(interp, &env_stack, &eval_stack.storage());
+	} value_root_guard(interp, &eval_stack.storage());
 
 	auto pop_checked = [&](UdonValue& out) -> bool
 	{
@@ -374,6 +386,28 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 		return true;
 	};
 
+	auto refresh_instruction_cache = [&](const std::vector<UdonInstruction>& fn_code)
+	{
+		for (const auto& instr : fn_code)
+		{
+			instr.cached_version = interp->cache_version;
+			instr.cached_global_slot = GLOBAL_SLOT_UNKNOWN;
+			instr.cached_kind = UdonInstruction::CachedKind::None;
+			instr.cached_builtin = UdonBuiltinFunction();
+			instr.cached_fn = nullptr;
+			instr.cached_call_arg_names.clear();
+			instr.cached_has_named_args = false;
+		}
+	};
+
+	const auto* code_ptr = &code;
+	auto cache_it = interp->code_cache_versions.find(code_ptr);
+	if (cache_it == interp->code_cache_versions.end() || cache_it->second != interp->cache_version)
+	{
+		refresh_instruction_cache(code);
+		interp->code_cache_versions[code_ptr] = interp->cache_version;
+	}
+
 	size_t ip = 0;
 	u32 current_line = 0;
 	u32 current_col = 0;
@@ -392,23 +426,13 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 		{
 			steps_since_gc = 0;
 			last_gc_time = now;
-			interp->collect_garbage(&env_stack, &eval_stack.storage(), 10);
+			interp->collect_garbage(current_env, &eval_stack.storage(), 10);
 		}
 	};
 
 	while (ip < code.size())
 	{
 		auto& instr = code[ip];
-		if (instr.cached_version != interp->cache_version)
-		{
-			instr.cached_version = interp->cache_version;
-			instr.cached_global_slot = GLOBAL_SLOT_UNKNOWN;
-			instr.cached_kind = UdonInstruction::CachedKind::None;
-			instr.cached_builtin = UdonBuiltinFunction();
-			instr.cached_fn = nullptr;
-			instr.cached_call_arg_names.clear();
-			instr.cached_has_named_args = false;
-		}
 		current_line = instr.line;
 		current_col = instr.column;
 		ok.line = current_line;
@@ -421,18 +445,10 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				break;
 			case UdonInstruction::OpCode::ENTER_SCOPE:
 			{
-				s32 slot_count = (!instr.operands.empty()) ? instr.operands[0].int_value : 0;
-				if (slot_count < 0)
-					slot_count = 0;
-				current_env = interp->allocate_environment(static_cast<size_t>(slot_count), current_env);
-				env_stack.push_back(current_env);
 				break;
 			}
 			case UdonInstruction::OpCode::EXIT_SCOPE:
 			{
-				if (!env_stack.empty())
-					env_stack.pop_back();
-				current_env = env_stack.empty() ? nullptr : env_stack.back();
 				break;
 			}
 			case UdonInstruction::OpCode::LOAD_LOCAL:
@@ -710,8 +726,8 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				auto ps_it = interp->function_param_slots.find(fn_name);
 				if (ps_it != interp->function_param_slots.end())
 					fn_obj->param_slots = ps_it->second;
-				auto ss_it = interp->function_scope_sizes.find(fn_name);
-				if (ss_it != interp->function_scope_sizes.end())
+				auto ss_it = interp->function_frame_sizes.find(fn_name);
+				if (ss_it != interp->function_frame_sizes.end())
 					fn_obj->root_scope_size = ss_it->second;
 				auto vs_it = interp->function_variadic_slot.find(fn_name);
 				fn_obj->variadic_slot = (vs_it != interp->function_variadic_slot.end()) ? vs_it->second : -1;
@@ -965,7 +981,7 @@ void UdonInterpreter::reset_state(bool release_heaps, bool release_handles)
 	function_params.clear();
 	function_variadic.clear();
 	function_param_slots.clear();
-	function_scope_sizes.clear();
+	function_frame_sizes.clear();
 	function_variadic_slot.clear();
 	function_cache.clear();
 	event_handlers.clear();
@@ -977,6 +993,7 @@ void UdonInterpreter::reset_state(bool release_heaps, bool release_handles)
 	stack.clear();
 	active_env_roots.clear();
 	active_value_roots.clear();
+	code_cache_versions.clear();
 	value_buffer_pool.clear();
 	map_buffer_pool.clear();
 	gc_runs = 0;
@@ -1015,8 +1032,8 @@ static bool populate_from_managed(UdonInterpreter* interp, UdonValue::ManagedFun
 		return false;
 	if (fn_obj->root_scope_size == 0)
 	{
-		auto ss_it = interp->function_scope_sizes.find(fn_obj->function_name);
-		if (ss_it != interp->function_scope_sizes.end())
+		auto ss_it = interp->function_frame_sizes.find(fn_obj->function_name);
+		if (ss_it != interp->function_frame_sizes.end())
 			fn_obj->root_scope_size = ss_it->second;
 	}
 	if (!fn_obj->param_slots || fn_obj->param_slots->empty())
@@ -1072,8 +1089,8 @@ static bool resolve_function_by_name(UdonInterpreter* interp, const std::string&
 	auto ps_it = interp->function_param_slots.find(name);
 	if (ps_it != interp->function_param_slots.end())
 		fn_val.function->param_slots = ps_it->second;
-	auto ss_it = interp->function_scope_sizes.find(name);
-	if (ss_it != interp->function_scope_sizes.end())
+	auto ss_it = interp->function_frame_sizes.find(name);
+	if (ss_it != interp->function_frame_sizes.end())
 		fn_val.function->root_scope_size = ss_it->second;
 	auto vs_it = interp->function_variadic_slot.find(name);
 	fn_val.function->variadic_slot = (vs_it != interp->function_variadic_slot.end()) ? vs_it->second : -1;
@@ -1174,7 +1191,7 @@ UdonEnvironment* UdonInterpreter::allocate_environment(size_t slot_count, UdonEn
 {
 	auto* env = new UdonEnvironment();
 	env->parent = parent;
-	env->slots.resize(slot_count, make_none());
+	env->slots.assign(slot_count, UdonValue());
 	heap_environments.push_back(env);
 	return env;
 }
@@ -1314,7 +1331,7 @@ CodeLocation UdonInterpreter::compile_append(const std::string& source_code)
 		function_params,
 		function_variadic,
 		function_param_slots,
-		function_scope_sizes,
+		function_frame_sizes,
 		function_variadic_slot,
 		event_handlers,
 		module_global_init,
@@ -1362,7 +1379,7 @@ CodeLocation UdonInterpreter::compile_append(const std::string& source_code)
 		instructions[init_fn] = std::make_shared<std::vector<UdonInstruction>>(module_global_init);
 		function_params[init_fn] = std::make_shared<std::vector<std::string>>();
 		function_param_slots[init_fn] = std::make_shared<std::vector<s32>>();
-		function_scope_sizes[init_fn] = 0;
+		function_frame_sizes[init_fn] = 0;
 		function_variadic_slot[init_fn] = -1;
 		UdonValue dummy;
 		CodeLocation init_res = run(init_fn, {}, {}, dummy);
@@ -1412,8 +1429,8 @@ CodeLocation UdonInterpreter::run(std::string function_name,
 		variadic_param = var_it->second;
 
 	size_t root_scope_size = 0;
-	auto scope_it = function_scope_sizes.find(function_name);
-	if (scope_it != function_scope_sizes.end())
+	auto scope_it = function_frame_sizes.find(function_name);
+	if (scope_it != function_frame_sizes.end())
 		root_scope_size = scope_it->second;
 	std::vector<s32> param_slot_lookup;
 	auto slot_it = function_param_slots.find(function_name);
@@ -1654,7 +1671,7 @@ static void mark_value(const UdonValue& v)
 	}
 }
 
-void UdonInterpreter::collect_garbage(const std::vector<UdonEnvironment*>* env_roots,
+void UdonInterpreter::collect_garbage(UdonEnvironment* env_root,
 	const std::vector<UdonValue>* value_roots,
 	u32 time_budget_ms,
 	bool invalidate_caches)
@@ -1674,14 +1691,6 @@ void UdonInterpreter::collect_garbage(const std::vector<UdonEnvironment*>* env_r
 	for (auto* fn : heap_functions)
 		fn->marked = false;
 
-	auto mark_env_roots = [&](const std::vector<UdonEnvironment*>* roots)
-	{
-		if (!roots)
-			return;
-		for (auto* env : *roots)
-			mark_environment(env);
-	};
-
 	auto mark_value_roots = [&](const std::vector<UdonValue>* roots)
 	{
 		if (!roots)
@@ -1690,8 +1699,14 @@ void UdonInterpreter::collect_garbage(const std::vector<UdonEnvironment*>* env_r
 			mark_value(v);
 	};
 
-	for (auto* roots : active_env_roots)
-		mark_env_roots(roots);
+	auto mark_env_root = [&](UdonEnvironment* root)
+	{
+		if (root)
+			mark_environment(root);
+	};
+
+	for (auto* root_ptr : active_env_roots)
+		mark_env_root(root_ptr ? *root_ptr : nullptr);
 	for (auto& kv : globals)
 		mark_value(kv.second);
 	for (auto& v : stack)
@@ -1703,12 +1718,13 @@ void UdonInterpreter::collect_garbage(const std::vector<UdonEnvironment*>* env_r
 	}
 	for (auto* roots : active_value_roots)
 		mark_value_roots(roots);
-	mark_env_roots(env_roots);
+	mark_env_root(env_root);
 	mark_value_roots(value_roots);
 
 	if (invalidate_caches)
 	{
 		function_cache.clear();
+		code_cache_versions.clear();
 		++cache_version;
 	}
 

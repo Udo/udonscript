@@ -165,7 +165,7 @@ struct UdonInterpreter
 	std::unordered_map<std::string, std::shared_ptr<std::vector<std::string>>> function_params; // parameter names per function
 	std::unordered_map<std::string, std::string> function_variadic; // variadic param name per function (optional)
 	std::unordered_map<std::string, std::shared_ptr<std::vector<s32>>> function_param_slots; // slot index per parameter
-	std::unordered_map<std::string, size_t> function_scope_sizes; // root scope slot counts
+	std::unordered_map<std::string, size_t> function_frame_sizes; // total local slot counts
 	std::unordered_map<std::string, s32> function_variadic_slot; // slot index for variadic parameter if present
 	std::unordered_map<std::string, UdonBuiltinEntry> builtins;
 	std::unordered_map<std::string, std::vector<std::string>> event_handlers; // on:event -> function names
@@ -174,7 +174,7 @@ struct UdonInterpreter
 	std::vector<UdonValue> global_slots;
 	std::unordered_map<std::string, s32> global_slot_lookup;
 	std::vector<UdonValue> stack;
-	std::vector<std::vector<UdonEnvironment*>*> active_env_roots;
+	std::vector<UdonEnvironment**> active_env_roots;
 	std::vector<std::vector<UdonValue>*> active_value_roots;
 	std::vector<UdonEnvironment*> heap_environments;
 	std::vector<UdonValue::ManagedArray*> heap_arrays;
@@ -188,6 +188,7 @@ struct UdonInterpreter
 	s32 lambda_counter = 0;
 	std::unordered_map<std::string, std::vector<std::string>> context_info;
 	std::unordered_map<std::string, UdonValue> function_cache;
+	std::unordered_map<const std::vector<UdonInstruction>*, u64> code_cache_versions;
 	std::vector<std::vector<UdonValue>> value_buffer_pool;
 	std::vector<std::unordered_map<std::string, UdonValue>> map_buffer_pool;
 
@@ -209,7 +210,7 @@ struct UdonInterpreter
 	CodeLocation run_eventhandlers(std::string on_event_name);
 	std::string dump_instructions() const;
 	void clear();
-	void collect_garbage(const std::vector<UdonEnvironment*>* env_roots = nullptr,
+	void collect_garbage(UdonEnvironment* env_root = nullptr,
 		const std::vector<UdonValue>* value_roots = nullptr,
 		u32 time_budget_ms = 0,
 		bool invalidate_caches = false);

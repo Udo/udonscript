@@ -2,7 +2,7 @@ gc_reclaimed_ok
 before_arrays 3
 mid_arrays 56
 after_arrays 4
-mid_envs 4
+mid_envs 3
 after_envs 1
 mid_functions 12
 after_functions 0

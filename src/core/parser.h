@@ -77,34 +77,32 @@ struct Parser
 	struct ScopeInfo
 	{
 		std::unordered_map<std::string, s32> slots;
-		s32 declare(const std::string& name)
-		{
-			auto it = slots.find(name);
-			if (it != slots.end())
-				return it->second;
-			s32 idx = static_cast<s32>(slots.size());
-			slots[name] = idx;
-			return idx;
-		}
 		bool contains(const std::string& name) const
 		{
 			return slots.find(name) != slots.end();
 		}
 	};
 
+	struct EnclosingScope
+	{
+		std::shared_ptr<ScopeInfo> scope;
+		s32 env_distance = 0; // number of function boundaries away
+	};
+
 	struct ScopeFrame
 	{
 		std::shared_ptr<ScopeInfo> scope;
-		size_t enter_instr = static_cast<size_t>(-1);
-		bool runtime_scope = false;
+		s32 env_distance = 0; // 0 for locals in this function
 	};
 
 	struct FunctionContext
 	{
 		std::vector<ScopeFrame> scope_stack;
-		std::vector<std::shared_ptr<ScopeInfo>> enclosing_scopes; // innermost -> outermost captured from surrounding contexts
+		std::vector<bool> runtime_scope_flags;
+		std::vector<EnclosingScope> enclosing_scopes; // innermost -> outermost captured from surrounding contexts
 		std::vector<s32> param_slot_indices;
 		s32 variadic_slot_index = -1;
+		s32 next_slot_index = 0;
 
 		ScopeFrame& current_scope()
 		{
@@ -114,11 +112,9 @@ struct Parser
 		{
 			return scope_stack.back();
 		}
-		size_t root_slot_count() const
+		size_t frame_slot_count() const
 		{
-			if (scope_stack.empty())
-				return 0;
-			return scope_stack.front().scope ? scope_stack.front().scope->slots.size() : 0;
+			return static_cast<size_t>(next_slot_index);
 		}
 	};
 
@@ -148,7 +144,7 @@ struct Parser
 	};
 
 	size_t begin_scope(FunctionContext& ctx, std::vector<UdonInstruction>& body, bool runtime_scope, const Token* tok = nullptr);
-	size_t end_scope(FunctionContext& ctx, std::vector<UdonInstruction>& body);
+	size_t end_scope(FunctionContext& ctx, std::vector<UdonInstruction>& body, bool emit_scope_ops = true);
 	void emit_unwind_to_depth(FunctionContext& ctx, std::vector<UdonInstruction>& body, size_t target_depth);
 	s32 declare_variable(FunctionContext& ctx, const std::string& name);
 	bool resolve_variable(const FunctionContext& ctx, const std::string& name, ResolvedVariable& out) const;

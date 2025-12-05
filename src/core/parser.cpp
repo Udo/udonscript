@@ -31,27 +31,31 @@ size_t Parser::begin_scope(FunctionContext& ctx, std::vector<UdonInstruction>& b
 {
 	ScopeFrame frame;
 	frame.scope = std::make_shared<ScopeInfo>();
-	frame.runtime_scope = runtime_scope;
+	frame.env_distance = 0;
 	if (runtime_scope)
 	{
-		frame.enter_instr = body.size();
 		emit(body, UdonInstruction::OpCode::ENTER_SCOPE, { make_int(0) }, tok);
 	}
 	ctx.scope_stack.push_back(frame);
+	ctx.runtime_scope_flags.push_back(runtime_scope);
 	return ctx.scope_stack.size() - 1;
 }
 
-size_t Parser::end_scope(FunctionContext& ctx, std::vector<UdonInstruction>& body)
+size_t Parser::end_scope(FunctionContext& ctx, std::vector<UdonInstruction>& body, bool emit_scope_ops)
 {
 	size_t exit_index = body.size();
 	if (ctx.scope_stack.empty())
 		return exit_index;
 	ScopeFrame frame = ctx.scope_stack.back();
 	ctx.scope_stack.pop_back();
-	if (frame.runtime_scope)
+	bool runtime_scope = false;
+	if (!ctx.runtime_scope_flags.empty())
 	{
-		if (frame.enter_instr < body.size())
-			body[frame.enter_instr].operands[0].int_value = static_cast<s64>(frame.scope->slots.size());
+		runtime_scope = ctx.runtime_scope_flags.back();
+		ctx.runtime_scope_flags.pop_back();
+	}
+	if (emit_scope_ops && runtime_scope)
+	{
 		exit_index = body.size();
 		emit(body, UdonInstruction::OpCode::EXIT_SCOPE);
 	}
@@ -64,8 +68,8 @@ void Parser::emit_unwind_to_depth(FunctionContext& ctx, std::vector<UdonInstruct
 		target_depth = ctx.scope_stack.size();
 	for (size_t i = ctx.scope_stack.size(); i > target_depth; --i)
 	{
-		const ScopeFrame& frame = ctx.scope_stack[i - 1];
-		if (frame.runtime_scope)
+		const bool runtime_scope = (i - 1 < ctx.runtime_scope_flags.size()) ? ctx.runtime_scope_flags[i - 1] : false;
+		if (runtime_scope)
 			emit(body, UdonInstruction::OpCode::EXIT_SCOPE);
 	}
 }
@@ -74,32 +78,37 @@ s32 Parser::declare_variable(FunctionContext& ctx, const std::string& name)
 {
 	if (ctx.scope_stack.empty())
 		return -1;
-	return ctx.current_scope().scope->declare(name);
+	auto& scope = ctx.current_scope().scope;
+	auto it = scope->slots.find(name);
+	if (it != scope->slots.end())
+		return it->second;
+	s32 slot = ctx.next_slot_index++;
+	scope->slots[name] = slot;
+	return slot;
 }
 
 bool Parser::resolve_variable(const FunctionContext& ctx, const std::string& name, ResolvedVariable& out) const
 {
 	for (int i = static_cast<int>(ctx.scope_stack.size()) - 1; i >= 0; --i)
 	{
-		const auto& scope = ctx.scope_stack[static_cast<size_t>(i)].scope;
-		auto it = scope->slots.find(name);
-		if (it != scope->slots.end())
+		const auto& frame = ctx.scope_stack[static_cast<size_t>(i)];
+		auto it = frame.scope->slots.find(name);
+		if (it != frame.scope->slots.end())
 		{
 			out.is_global = false;
-			out.depth = static_cast<s32>(ctx.scope_stack.size() - 1 - static_cast<size_t>(i));
+			out.depth = frame.env_distance;
 			out.slot = it->second;
 			out.name = name;
 			return true;
 		}
 	}
-	for (size_t i = 0; i < ctx.enclosing_scopes.size(); ++i)
+	for (const auto& scope_info : ctx.enclosing_scopes)
 	{
-		const auto& scope = ctx.enclosing_scopes[i];
-		auto it = scope->slots.find(name);
-		if (it != scope->slots.end())
+		auto it = scope_info.scope->slots.find(name);
+		if (it != scope_info.scope->slots.end())
 		{
 			out.is_global = false;
-			out.depth = static_cast<s32>(ctx.scope_stack.size() + i);
+			out.depth = scope_info.env_distance;
 			out.slot = it->second;
 			out.name = name;
 			return true;
@@ -373,7 +382,7 @@ bool Parser::parse_function()
 	instructions[function_name] = std::make_shared<std::vector<UdonInstruction>>(body);
 	params[function_name] = std::make_shared<std::vector<std::string>>(param_names);
 	param_slots[function_name] = std::make_shared<std::vector<s32>>(fn_ctx.param_slot_indices);
-	scope_sizes[function_name] = fn_ctx.root_slot_count();
+	scope_sizes[function_name] = fn_ctx.frame_slot_count();
 	if (fn_ctx.variadic_slot_index >= 0)
 		variadic_slot[function_name] = fn_ctx.variadic_slot_index;
 	if (!variadic_param.empty())
@@ -1791,9 +1800,18 @@ bool Parser::parse_function_literal(std::vector<UdonInstruction>& body, Function
 	std::vector<UdonInstruction> fn_body;
 	FunctionContext fn_ctx;
 	for (auto it = ctx.scope_stack.rbegin(); it != ctx.scope_stack.rend(); ++it)
-		fn_ctx.enclosing_scopes.push_back(it->scope);
+	{
+		EnclosingScope enc_scope;
+		enc_scope.scope = it->scope;
+		enc_scope.env_distance = 1;
+		fn_ctx.enclosing_scopes.push_back(enc_scope);
+	}
 	for (const auto& enc : ctx.enclosing_scopes)
-		fn_ctx.enclosing_scopes.push_back(enc);
+	{
+		EnclosingScope nested = enc;
+		nested.env_distance = enc.env_distance + 1;
+		fn_ctx.enclosing_scopes.push_back(nested);
+	}
 
 	begin_scope(fn_ctx, fn_body, false, &previous());
 	for (const auto& p : param_names)
@@ -1824,7 +1842,7 @@ bool Parser::parse_function_literal(std::vector<UdonInstruction>& body, Function
 	instructions[fn_name] = std::make_shared<std::vector<UdonInstruction>>(fn_body);
 	params[fn_name] = std::make_shared<std::vector<std::string>>(param_names);
 	param_slots[fn_name] = std::make_shared<std::vector<s32>>(fn_ctx.param_slot_indices);
-	scope_sizes[fn_name] = fn_ctx.root_slot_count();
+	scope_sizes[fn_name] = fn_ctx.frame_slot_count();
 	if (fn_ctx.variadic_slot_index >= 0)
 		variadic_slot[fn_name] = fn_ctx.variadic_slot_index;
 	if (!variadic_param.empty())
