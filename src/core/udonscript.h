@@ -88,9 +88,8 @@ bool hashable_values_equal(const UdonValue& a, const UdonValue& b);
 
 // Lightweight UdonValue-keyed hash map with separate chaining.
 template <typename T>
-class ValueHashMap
+struct ValueHashMap
 {
-public:
 	explicit ValueHashMap(size_t initial_buckets = 16) { init_buckets(initial_buckets); }
 
 	void clear()
@@ -173,7 +172,6 @@ public:
 		}
 	}
 
-private:
 	struct Entry
 	{
 		UdonValue key;
@@ -251,6 +249,7 @@ private:
 		buckets.swap(new_buckets);
 	}
 };
+
 using UdonBuiltinFunction = std::function<bool(struct UdonInterpreter*,
 	const std::vector<UdonValue>&,
 	const std::unordered_map<std::string, UdonValue>&,
@@ -264,47 +263,48 @@ struct UdonBuiltinEntry
 	UdonBuiltinFunction function;
 };
 
+extern std::vector<std::string> OpcodeNames;
+enum class Opcode
+{
+	NOP,
+	PUSH_LITERAL,
+	LOAD_VAR,
+	STORE_VAR,
+	LOAD_LOCAL,
+	STORE_LOCAL,
+	LOAD_GLOBAL,
+	STORE_GLOBAL,
+	ENTER_SCOPE,
+	EXIT_SCOPE,
+	ADD,
+	SUB,
+	CONCAT,
+	MUL,
+	DIV,
+	MOD,
+	NEGATE,
+	EQ,
+	NEQ,
+	LT,
+	LTE,
+	GT,
+	GTE,
+	JUMP,
+	JUMP_IF_FALSE,
+	TO_BOOL,
+	LOGICAL_NOT,
+	GET_PROP,
+	STORE_PROP,
+	MAKE_CLOSURE,
+	CALL,
+	RETURN,
+	POP,
+	HALT
+};
+
 struct UdonInstruction
 {
-	enum class OpCode
-	{
-		NOP,
-		PUSH_LITERAL,
-		LOAD_VAR,
-		STORE_VAR,
-		LOAD_LOCAL,
-		STORE_LOCAL,
-		LOAD_GLOBAL,
-		STORE_GLOBAL,
-		ENTER_SCOPE,
-		EXIT_SCOPE,
-		ADD,
-		SUB,
-		CONCAT,
-		MUL,
-		DIV,
-		MOD,
-		NEGATE,
-		EQ,
-		NEQ,
-		LT,
-		LTE,
-		GT,
-		GTE,
-		JUMP,
-		JUMP_IF_FALSE,
-		TO_BOOL,
-		LOGICAL_NOT,
-		GET_PROP,
-		STORE_PROP,
-		MAKE_CLOSURE,
-		CALL,
-		RETURN,
-		POP,
-		HALT
-	};
-
-	OpCode opcode;
+	Opcode opcode_instruction;
 	std::vector<UdonValue> operands;
 	u32 line = 0;
 	u32 column = 0;

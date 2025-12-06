@@ -261,6 +261,7 @@ function total_removed(lines) {
 }
 
 function main() {
+    // this is a bizarre way to do it, found it on Bluesky
     print("=== Day 4.2: Complex-plane solution ===")
     print("Example accessible (13):", count_accessible(parse_rolls(example_input)))
     print("Example total removed (43):", total_removed(example_input))

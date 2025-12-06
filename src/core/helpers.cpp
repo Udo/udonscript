@@ -444,7 +444,7 @@ bool equal_values(const UdonValue& a, const UdonValue& b, UdonValue& out)
 	return true;
 }
 
-bool compare_values(const UdonValue& a, const UdonValue& b, UdonInstruction::OpCode op, UdonValue& out)
+bool compare_values(const UdonValue& a, const UdonValue& b, Opcode op, UdonValue& out)
 {
 	auto is_number = [](const UdonValue& v) -> bool
 	{
@@ -475,16 +475,16 @@ bool compare_values(const UdonValue& a, const UdonValue& b, UdonInstruction::OpC
 	bool result = false;
 	switch (op)
 	{
-		case UdonInstruction::OpCode::LT:
+		case Opcode::LT:
 			result = lhs < rhs;
 			break;
-		case UdonInstruction::OpCode::LTE:
+		case Opcode::LTE:
 			result = lhs <= rhs;
 			break;
-		case UdonInstruction::OpCode::GT:
+		case Opcode::GT:
 			result = lhs > rhs;
 			break;
-		case UdonInstruction::OpCode::GTE:
+		case Opcode::GTE:
 			result = lhs >= rhs;
 			break;
 		default:

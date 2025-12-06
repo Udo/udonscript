@@ -437,21 +437,21 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 		current_col = instr.column;
 		ok.line = current_line;
 		ok.column = current_col;
-		switch (instr.opcode)
+		switch (instr.opcode_instruction)
 		{
-			case UdonInstruction::OpCode::PUSH_LITERAL:
+			case Opcode::PUSH_LITERAL:
 				if (!instr.operands.empty())
 					eval_stack.push(instr.operands[0]);
 				break;
-			case UdonInstruction::OpCode::ENTER_SCOPE:
+			case Opcode::ENTER_SCOPE:
 			{
 				break;
 			}
-			case UdonInstruction::OpCode::EXIT_SCOPE:
+			case Opcode::EXIT_SCOPE:
 			{
 				break;
 			}
-			case UdonInstruction::OpCode::LOAD_LOCAL:
+			case Opcode::LOAD_LOCAL:
 			{
 				const s32 depth = instr.operands.size() > 0 ? instr.operands[0].int_value : 0;
 				const s32 slot = instr.operands.size() > 1 ? instr.operands[1].int_value : 0;
@@ -461,7 +461,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				eval_stack.push(v);
 				break;
 			}
-			case UdonInstruction::OpCode::STORE_LOCAL:
+			case Opcode::STORE_LOCAL:
 			{
 				UdonValue v{};
 				if (!eval_stack.pop(v))
@@ -472,8 +472,8 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 					return ok;
 				break;
 			}
-			case UdonInstruction::OpCode::LOAD_GLOBAL:
-			case UdonInstruction::OpCode::LOAD_VAR:
+			case Opcode::LOAD_GLOBAL:
+			case Opcode::LOAD_VAR:
 			{
 				const std::string name = !instr.operands.empty() ? instr.operands[0].string_value : "";
 				s32 slot = instr.cached_global_slot;
@@ -489,8 +489,8 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 					eval_stack.push(make_none());
 				break;
 			}
-			case UdonInstruction::OpCode::STORE_GLOBAL:
-			case UdonInstruction::OpCode::STORE_VAR:
+			case Opcode::STORE_GLOBAL:
+			case Opcode::STORE_VAR:
 			{
 				UdonValue v{};
 				if (!eval_stack.pop(v))
@@ -505,27 +505,27 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				interp->set_global_value(name, v, slot);
 				break;
 			}
-			case UdonInstruction::OpCode::ADD:
-			case UdonInstruction::OpCode::SUB:
-			case UdonInstruction::OpCode::CONCAT:
-			case UdonInstruction::OpCode::MUL:
-			case UdonInstruction::OpCode::DIV:
-			case UdonInstruction::OpCode::MOD:
+			case Opcode::ADD:
+			case Opcode::SUB:
+			case Opcode::CONCAT:
+			case Opcode::MUL:
+			case Opcode::DIV:
+			case Opcode::MOD:
 			{
 				auto op = [&](const UdonValue& lhs, const UdonValue& rhs, UdonValue& out) -> bool
 				{
-					if (instr.opcode == UdonInstruction::OpCode::CONCAT)
+					if (instr.opcode_instruction == Opcode::CONCAT)
 					{
 						out = make_string(value_to_string(lhs) + value_to_string(rhs));
 						return true;
 					}
-					if (instr.opcode == UdonInstruction::OpCode::ADD)
+					if (instr.opcode_instruction == Opcode::ADD)
 						return add_values(lhs, rhs, out);
-					if (instr.opcode == UdonInstruction::OpCode::SUB)
+					if (instr.opcode_instruction == Opcode::SUB)
 						return sub_values(lhs, rhs, out);
-					if (instr.opcode == UdonInstruction::OpCode::MUL)
+					if (instr.opcode_instruction == Opcode::MUL)
 						return mul_values(lhs, rhs, out);
-					if (instr.opcode == UdonInstruction::OpCode::DIV)
+					if (instr.opcode_instruction == Opcode::DIV)
 						return div_values(lhs, rhs, out);
 					return mod_values(lhs, rhs, out);
 				};
@@ -533,7 +533,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 					return ok;
 				break;
 			}
-			case UdonInstruction::OpCode::NEGATE:
+			case Opcode::NEGATE:
 			{
 				UdonValue v{};
 				if (!pop_checked(v))
@@ -553,7 +553,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				eval_stack.push(v);
 				break;
 			}
-			case UdonInstruction::OpCode::GET_PROP:
+			case Opcode::GET_PROP:
 			{
 				const std::string name = !instr.operands.empty() ? instr.operands[0].string_value : "";
 				UdonValue prop;
@@ -584,7 +584,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				eval_stack.push(prop);
 				break;
 			}
-			case UdonInstruction::OpCode::STORE_PROP:
+			case Opcode::STORE_PROP:
 			{
 				const std::string name = !instr.operands.empty() ? instr.operands[0].string_value : "";
 				UdonValue value;
@@ -625,12 +625,12 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				}
 				break;
 			}
-			case UdonInstruction::OpCode::EQ:
-			case UdonInstruction::OpCode::NEQ:
-			case UdonInstruction::OpCode::LT:
-			case UdonInstruction::OpCode::LTE:
-			case UdonInstruction::OpCode::GT:
-			case UdonInstruction::OpCode::GTE:
+			case Opcode::EQ:
+			case Opcode::NEQ:
+			case Opcode::LT:
+			case Opcode::LTE:
+			case Opcode::GT:
+			case Opcode::GTE:
 			{
 				UdonValue rhs{};
 				UdonValue lhs{};
@@ -638,17 +638,17 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 					return ok;
 				UdonValue result{};
 				bool success = false;
-				if (instr.opcode == UdonInstruction::OpCode::EQ || instr.opcode == UdonInstruction::OpCode::NEQ)
+				if (instr.opcode_instruction == Opcode::EQ || instr.opcode_instruction == Opcode::NEQ)
 				{
 					success = equal_values(lhs, rhs, result);
-					if (instr.opcode == UdonInstruction::OpCode::NEQ)
+					if (instr.opcode_instruction == Opcode::NEQ)
 					{
 						result.int_value = result.int_value ? 0 : 1;
 					}
 				}
 				else
 				{
-					success = compare_values(lhs, rhs, instr.opcode, result);
+					success = compare_values(lhs, rhs, instr.opcode_instruction, result);
 				}
 				if (!success)
 				{
@@ -658,7 +658,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				eval_stack.push(result);
 				break;
 			}
-			case UdonInstruction::OpCode::JUMP:
+			case Opcode::JUMP:
 			{
 				if (instr.operands.empty())
 				{
@@ -670,7 +670,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				maybe_collect_periodic();
 				continue;
 			}
-			case UdonInstruction::OpCode::JUMP_IF_FALSE:
+			case Opcode::JUMP_IF_FALSE:
 			{
 				UdonValue cond;
 				if (!eval_stack.pop(cond))
@@ -689,7 +689,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				}
 				break;
 			}
-			case UdonInstruction::OpCode::TO_BOOL:
+			case Opcode::TO_BOOL:
 			{
 				UdonValue v{};
 				if (!eval_stack.pop(v))
@@ -697,7 +697,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				eval_stack.push(make_bool(is_truthy(v)));
 				break;
 			}
-			case UdonInstruction::OpCode::LOGICAL_NOT:
+			case Opcode::LOGICAL_NOT:
 			{
 				UdonValue v{};
 				if (!eval_stack.pop(v))
@@ -705,7 +705,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				eval_stack.push(make_bool(!is_truthy(v)));
 				break;
 			}
-			case UdonInstruction::OpCode::MAKE_CLOSURE:
+			case Opcode::MAKE_CLOSURE:
 			{
 				if (instr.operands.empty())
 				{
@@ -741,7 +741,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				eval_stack.push(v);
 				break;
 			}
-			case UdonInstruction::OpCode::CALL:
+			case Opcode::CALL:
 			{
 				if (instr.operands.size() < 2)
 				{
@@ -917,20 +917,20 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				eval_stack.push(call_result);
 				break;
 			}
-			case UdonInstruction::OpCode::RETURN:
+			case Opcode::RETURN:
 			{
 				return_value = eval_stack.empty() ? make_none() : eval_stack.peek();
 				return ok;
 			}
-			case UdonInstruction::OpCode::POP:
+			case Opcode::POP:
 			{
 				UdonValue tmp;
 				if (!eval_stack.pop(tmp))
 					return ok;
 				break;
 			}
-			case UdonInstruction::OpCode::NOP:
-			case UdonInstruction::OpCode::HALT:
+			case Opcode::NOP:
+			case Opcode::HALT:
 				return_value = make_none();
 				return ok;
 		}
@@ -942,8 +942,46 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 	return ok;
 }
 
+std::vector<std::string> OpcodeNames;
+
 UdonInterpreter::UdonInterpreter()
 {
+	OpcodeNames = {
+		"NOP",
+		"PUSH_LITERAL",
+		"LOAD_VAR",
+		"STORE_VAR",
+		"LOAD_LOCAL",
+		"STORE_LOCAL",
+		"LOAD_GLOBAL",
+		"STORE_GLOBAL",
+		"ENTER_SCOPE",
+		"EXIT_SCOPE",
+		"ADD",
+		"SUB",
+		"CONCAT",
+		"MUL",
+		"DIV",
+		"MOD",
+		"NEGATE",
+		"EQ",
+		"NEQ",
+		"LT",
+		"LTE",
+		"GT",
+		"GTE",
+		"JUMP",
+		"JUMP_IF_FALSE",
+		"TO_BOOL",
+		"LOGICAL_NOT",
+		"GET_PROP",
+		"STORE_PROP",
+		"MAKE_CLOSURE",
+		"CALL",
+		"RETURN",
+		"POP",
+		"HALT"
+	};
 	register_builtins(this);
 }
 
@@ -1484,7 +1522,7 @@ std::string UdonInterpreter::dump_instructions() const
 		{
 			const auto& instr = body[i];
 			ss << "  [" << i << "] ";
-			if (instr.opcode == UdonInstruction::OpCode::PUSH_LITERAL && !instr.operands.empty())
+			if (instr.opcode_instruction == Opcode::PUSH_LITERAL && !instr.operands.empty())
 			{
 				ss << "PUSH " << value_to_string(instr.operands[0]);
 				ss << "\n";
@@ -1494,98 +1532,98 @@ std::string UdonInterpreter::dump_instructions() const
 			{
 				ss << label << " " << (instr.operands.empty() ? "<anon>" : instr.operands[0].string_value);
 			};
-			switch (instr.opcode)
+			switch (instr.opcode_instruction)
 			{
-				case UdonInstruction::OpCode::PUSH_LITERAL:
+				case Opcode::PUSH_LITERAL:
 					ss << "PUSH <none>";
 					break;
-				case UdonInstruction::OpCode::LOAD_LOCAL:
+				case Opcode::LOAD_LOCAL:
 					ss << "LOAD_LOCAL depth=" << (instr.operands.size() > 0 ? instr.operands[0].int_value : -1)
 					   << " slot=" << (instr.operands.size() > 1 ? instr.operands[1].int_value : -1);
 					break;
-				case UdonInstruction::OpCode::STORE_LOCAL:
+				case Opcode::STORE_LOCAL:
 					ss << "STORE_LOCAL depth=" << (instr.operands.size() > 0 ? instr.operands[0].int_value : -1)
 					   << " slot=" << (instr.operands.size() > 1 ? instr.operands[1].int_value : -1);
 					break;
-				case UdonInstruction::OpCode::LOAD_GLOBAL:
+				case Opcode::LOAD_GLOBAL:
 					print_var("LOADG");
 					break;
-				case UdonInstruction::OpCode::STORE_GLOBAL:
+				case Opcode::STORE_GLOBAL:
 					print_var("STOREG");
 					break;
-				case UdonInstruction::OpCode::LOAD_VAR:
+				case Opcode::LOAD_VAR:
 					print_var("LOAD");
 					break;
-				case UdonInstruction::OpCode::STORE_VAR:
+				case Opcode::STORE_VAR:
 					print_var("STORE");
 					break;
-				case UdonInstruction::OpCode::ENTER_SCOPE:
+				case Opcode::ENTER_SCOPE:
 					ss << "ENTER_SCOPE slots=" << (instr.operands.empty() ? 0 : instr.operands[0].int_value);
 					break;
-				case UdonInstruction::OpCode::EXIT_SCOPE:
+				case Opcode::EXIT_SCOPE:
 					ss << "EXIT_SCOPE";
 					break;
-				case UdonInstruction::OpCode::ADD:
+				case Opcode::ADD:
 					ss << "ADD";
 					break;
-				case UdonInstruction::OpCode::SUB:
+				case Opcode::SUB:
 					ss << "SUB";
 					break;
-				case UdonInstruction::OpCode::CONCAT:
+				case Opcode::CONCAT:
 					ss << "CONCAT";
 					break;
-				case UdonInstruction::OpCode::MUL:
+				case Opcode::MUL:
 					ss << "MUL";
 					break;
-				case UdonInstruction::OpCode::DIV:
+				case Opcode::DIV:
 					ss << "DIV";
 					break;
-				case UdonInstruction::OpCode::MOD:
+				case Opcode::MOD:
 					ss << "MOD";
 					break;
-				case UdonInstruction::OpCode::NEGATE:
+				case Opcode::NEGATE:
 					ss << "NEG";
 					break;
-				case UdonInstruction::OpCode::EQ:
+				case Opcode::EQ:
 					ss << "EQ";
 					break;
-				case UdonInstruction::OpCode::NEQ:
+				case Opcode::NEQ:
 					ss << "NEQ";
 					break;
-				case UdonInstruction::OpCode::LT:
+				case Opcode::LT:
 					ss << "LT";
 					break;
-				case UdonInstruction::OpCode::LTE:
+				case Opcode::LTE:
 					ss << "LTE";
 					break;
-				case UdonInstruction::OpCode::GT:
+				case Opcode::GT:
 					ss << "GT";
 					break;
-				case UdonInstruction::OpCode::GTE:
+				case Opcode::GTE:
 					ss << "GTE";
 					break;
-				case UdonInstruction::OpCode::JUMP:
+				case Opcode::JUMP:
 					ss << "JUMP " << (instr.operands.empty() ? -1 : instr.operands[0].int_value);
 					break;
-				case UdonInstruction::OpCode::JUMP_IF_FALSE:
+				case Opcode::JUMP_IF_FALSE:
 					ss << "JZ " << (instr.operands.empty() ? -1 : instr.operands[0].int_value);
 					break;
-				case UdonInstruction::OpCode::TO_BOOL:
+				case Opcode::TO_BOOL:
 					ss << "TO_BOOL";
 					break;
-				case UdonInstruction::OpCode::LOGICAL_NOT:
+				case Opcode::LOGICAL_NOT:
 					ss << "NOT";
 					break;
-				case UdonInstruction::OpCode::GET_PROP:
+				case Opcode::GET_PROP:
 					ss << "GET_PROP " << (instr.operands.empty() ? "<name>" : instr.operands[0].string_value);
 					break;
-				case UdonInstruction::OpCode::STORE_PROP:
+				case Opcode::STORE_PROP:
 					ss << "STORE_PROP " << (instr.operands.empty() ? "<name>" : instr.operands[0].string_value);
 					break;
-				case UdonInstruction::OpCode::MAKE_CLOSURE:
+				case Opcode::MAKE_CLOSURE:
 					ss << "MAKE_CLOSURE " << (instr.operands.empty() ? "<name>" : instr.operands[0].string_value);
 					break;
-				case UdonInstruction::OpCode::CALL:
+				case Opcode::CALL:
 				{
 					std::string target = instr.operands.size() > 0 ? instr.operands[0].string_value : "<anon>";
 					s32 argc = instr.operands.size() > 1 ? instr.operands[1].int_value : 0;
@@ -1603,16 +1641,16 @@ std::string UdonInterpreter::dump_instructions() const
 					}
 					break;
 				}
-				case UdonInstruction::OpCode::RETURN:
+				case Opcode::RETURN:
 					ss << "RETURN";
 					break;
-				case UdonInstruction::OpCode::POP:
+				case Opcode::POP:
 					ss << "POP";
 					break;
-				case UdonInstruction::OpCode::NOP:
+				case Opcode::NOP:
 					ss << "NOP";
 					break;
-				case UdonInstruction::OpCode::HALT:
+				case Opcode::HALT:
 					ss << "HALT";
 					break;
 			}

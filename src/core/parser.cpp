@@ -34,7 +34,7 @@ size_t Parser::begin_scope(FunctionContext& ctx, std::vector<UdonInstruction>& b
 	frame.env_distance = 0;
 	if (runtime_scope)
 	{
-		emit(body, UdonInstruction::OpCode::ENTER_SCOPE, { make_int(0) }, tok);
+		emit(body, Opcode::ENTER_SCOPE, { make_int(0) }, tok);
 	}
 	ctx.scope_stack.push_back(frame);
 	ctx.runtime_scope_flags.push_back(runtime_scope);
@@ -57,7 +57,7 @@ size_t Parser::end_scope(FunctionContext& ctx, std::vector<UdonInstruction>& bod
 	if (emit_scope_ops && runtime_scope)
 	{
 		exit_index = body.size();
-		emit(body, UdonInstruction::OpCode::EXIT_SCOPE);
+		emit(body, Opcode::EXIT_SCOPE);
 	}
 	return exit_index;
 }
@@ -70,7 +70,7 @@ void Parser::emit_unwind_to_depth(FunctionContext& ctx, std::vector<UdonInstruct
 	{
 		const bool runtime_scope = (i - 1 < ctx.runtime_scope_flags.size()) ? ctx.runtime_scope_flags[i - 1] : false;
 		if (runtime_scope)
-			emit(body, UdonInstruction::OpCode::EXIT_SCOPE);
+			emit(body, Opcode::EXIT_SCOPE);
 	}
 }
 
@@ -129,20 +129,20 @@ void Parser::emit_load_var(std::vector<UdonInstruction>& body, const ResolvedVar
 {
 	if (var.is_global)
 	{
-		emit(body, UdonInstruction::OpCode::LOAD_GLOBAL, { make_string(var.name) }, tok);
+		emit(body, Opcode::LOAD_GLOBAL, { make_string(var.name) }, tok);
 	}
 	else
 	{
-		emit(body, UdonInstruction::OpCode::LOAD_LOCAL, { make_int(var.depth), make_int(var.slot) }, tok);
+		emit(body, Opcode::LOAD_LOCAL, { make_int(var.depth), make_int(var.slot) }, tok);
 	}
 }
 
 void Parser::emit_store_var(std::vector<UdonInstruction>& body, const ResolvedVariable& var, const Token* tok)
 {
 	if (var.is_global)
-		emit(body, UdonInstruction::OpCode::STORE_GLOBAL, { make_string(var.name) }, tok);
+		emit(body, Opcode::STORE_GLOBAL, { make_string(var.name) }, tok);
 	else
-		emit(body, UdonInstruction::OpCode::STORE_LOCAL, { make_int(var.depth), make_int(var.slot) }, tok);
+		emit(body, Opcode::STORE_LOCAL, { make_int(var.depth), make_int(var.slot) }, tok);
 }
 
 bool Parser::is_end() const
@@ -253,9 +253,9 @@ bool Parser::parse_global_var()
 	}
 	else
 	{
-		emit(global_init, UdonInstruction::OpCode::PUSH_LITERAL, { make_none() });
+		emit(global_init, Opcode::PUSH_LITERAL, { make_none() });
 	}
-	emit(global_init, UdonInstruction::OpCode::STORE_GLOBAL, { make_string(name) });
+	emit(global_init, Opcode::STORE_GLOBAL, { make_string(name) });
 	return true;
 }
 
@@ -395,12 +395,12 @@ bool Parser::parse_function()
 }
 
 void Parser::emit(std::vector<UdonInstruction>& body,
-	UdonInstruction::OpCode op,
+	Opcode op,
 	const std::vector<UdonValue>& operands,
 	const Token* tok)
 {
 	UdonInstruction i{};
-	i.opcode = op;
+	i.opcode_instruction = op;
 	i.operands = operands;
 	const Token* loc_tok = tok;
 	if (!loc_tok && current > 0)
@@ -455,13 +455,13 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 			return false;
 
 		size_t jmp_false_index = body.size();
-		emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+		emit(body, Opcode::JUMP_IF_FALSE, { make_int(0) });
 
 		if (!parse_statement_or_block(body, ctx, false))
 			return false;
 
 		size_t jmp_end_index = body.size();
-		emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
+		emit(body, Opcode::JUMP, { make_int(0) });
 
 		body[jmp_false_index].operands[0].int_value = static_cast<s64>(body.size());
 
@@ -482,7 +482,7 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		declare_variable(ctx, ran_tmp_name);
 		ResolvedVariable ran_tmp;
 		resolve_variable(ctx, ran_tmp_name, ran_tmp);
-		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(0) });
+		emit(body, Opcode::PUSH_LITERAL, { make_int(0) });
 		emit_store_var(body, ran_tmp);
 
 		if (!expect_symbol("(", "Expected '(' after while"))
@@ -494,9 +494,9 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 			return false;
 
 		size_t jmp_false_index = body.size();
-		emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+		emit(body, Opcode::JUMP_IF_FALSE, { make_int(0) });
 
-		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(1) });
+		emit(body, Opcode::PUSH_LITERAL, { make_int(1) });
 		emit_store_var(body, ran_tmp);
 
 		loop_stack.push_back({});
@@ -507,7 +507,7 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 			return false;
 		for (size_t ci : loop_stack.back().continue_jumps)
 			body[ci].operands[0].int_value = static_cast<s64>(cond_index);
-		emit(body, UdonInstruction::OpCode::JUMP, { make_int(static_cast<s64>(cond_index)) });
+		emit(body, Opcode::JUMP, { make_int(static_cast<s64>(cond_index)) });
 		size_t exit_index = body.size();
 		body[jmp_false_index].operands[0].int_value = static_cast<s64>(exit_index);
 		for (size_t bi : loop_stack.back().break_jumps)
@@ -517,10 +517,10 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		if (match_keyword("else"))
 		{
 			emit_load_var(body, ran_tmp);
-			emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(0) });
-			emit(body, UdonInstruction::OpCode::EQ);
+			emit(body, Opcode::PUSH_LITERAL, { make_int(0) });
+			emit(body, Opcode::EQ);
 			size_t skip_else = body.size();
-			emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+			emit(body, Opcode::JUMP_IF_FALSE, { make_int(0) });
 			if (!parse_statement_or_block(body, ctx, false))
 				return false;
 			size_t end_else = end_scope(ctx, body);
@@ -557,7 +557,7 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 				}
 				else
 				{
-					emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_none() });
+					emit(body, Opcode::PUSH_LITERAL, { make_none() });
 				}
 				emit_store_var(body, init_var);
 				if (!expect_symbol(";", "Expected ';' after for init"))
@@ -569,7 +569,7 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 				if (!parse_assignment_or_expression(body, ctx, produced))
 					return false;
 				if (produced)
-					emit(body, UdonInstruction::OpCode::POP);
+					emit(body, Opcode::POP);
 				if (!expect_symbol(";", "Expected ';' after for init"))
 					return false;
 			}
@@ -579,7 +579,7 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		declare_variable(ctx, ran_tmp_name);
 		ResolvedVariable ran_tmp;
 		resolve_variable(ctx, ran_tmp_name, ran_tmp);
-		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(0) });
+		emit(body, Opcode::PUSH_LITERAL, { make_int(0) });
 		emit_store_var(body, ran_tmp);
 
 		size_t cond_index = body.size();
@@ -592,10 +592,10 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		}
 		else
 		{
-			emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(1) });
+			emit(body, Opcode::PUSH_LITERAL, { make_int(1) });
 		}
 		size_t jmp_false_index = body.size();
-		emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+		emit(body, Opcode::JUMP_IF_FALSE, { make_int(0) });
 
 		std::vector<UdonInstruction> increment_code;
 		if (!match_symbol(")"))
@@ -604,7 +604,7 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 			if (!parse_assignment_or_expression(increment_code, ctx, produced))
 				return false;
 			if (produced)
-				emit(increment_code, UdonInstruction::OpCode::POP);
+				emit(increment_code, Opcode::POP);
 			if (!expect_symbol(")", "Expected ')' after for increment"))
 				return false;
 		}
@@ -612,7 +612,7 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		loop_stack.push_back({});
 		loop_stack.back().allow_continue = true;
 		loop_stack.back().scope_depth = ctx.scope_stack.size();
-		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(1) });
+		emit(body, Opcode::PUSH_LITERAL, { make_int(1) });
 		emit_store_var(body, ran_tmp);
 		if (!parse_statement_or_block(body, ctx))
 			return false;
@@ -620,7 +620,7 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		for (size_t ci : loop_stack.back().continue_jumps)
 			body[ci].operands[0].int_value = static_cast<s64>(continue_target);
 		body.insert(body.end(), increment_code.begin(), increment_code.end());
-		emit(body, UdonInstruction::OpCode::JUMP, { make_int(static_cast<s64>(cond_index)) });
+		emit(body, Opcode::JUMP, { make_int(static_cast<s64>(cond_index)) });
 		size_t exit_index = body.size();
 		body[jmp_false_index].operands[0].int_value = static_cast<s64>(exit_index);
 		for (size_t bi : loop_stack.back().break_jumps)
@@ -630,10 +630,10 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		if (match_keyword("else"))
 		{
 			emit_load_var(body, ran_tmp);
-			emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(0) });
-			emit(body, UdonInstruction::OpCode::EQ);
+			emit(body, Opcode::PUSH_LITERAL, { make_int(0) });
+			emit(body, Opcode::EQ);
 			size_t skip_else = body.size();
-			emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+			emit(body, Opcode::JUMP_IF_FALSE, { make_int(0) });
 			if (!parse_statement_or_block(body, ctx, false))
 				return false;
 			size_t end_else = end_scope(ctx, body);
@@ -709,10 +709,10 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		call_ops.push_back(make_string("keys"));
 		call_ops.push_back(make_int(1));
 		call_ops.push_back(make_string(""));
-		emit(body, UdonInstruction::OpCode::CALL, call_ops);
+		emit(body, Opcode::CALL, call_ops);
 		emit_store_var(body, keys_var);
 
-		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(0) });
+		emit(body, Opcode::PUSH_LITERAL, { make_int(0) });
 		emit_store_var(body, idx_var);
 
 		if (!expect_symbol(")", "Expected ')' after foreach header"))
@@ -725,10 +725,10 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		len_ops.push_back(make_string("len"));
 		len_ops.push_back(make_int(1));
 		len_ops.push_back(make_string(""));
-		emit(body, UdonInstruction::OpCode::CALL, len_ops);
-		emit(body, UdonInstruction::OpCode::LT);
+		emit(body, Opcode::CALL, len_ops);
+		emit(body, Opcode::LT);
 		size_t jmp_false_index = body.size();
-		emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+		emit(body, Opcode::JUMP_IF_FALSE, { make_int(0) });
 
 		emit_load_var(body, keys_var);
 		emit_load_var(body, idx_var);
@@ -737,7 +737,7 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		get_key_ops.push_back(make_int(2));
 		get_key_ops.push_back(make_string(""));
 		get_key_ops.push_back(make_string(""));
-		emit(body, UdonInstruction::OpCode::CALL, get_key_ops);
+		emit(body, Opcode::CALL, get_key_ops);
 		emit_store_var(body, key_var);
 
 		if (has_value)
@@ -749,7 +749,7 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 			get_val_ops.push_back(make_int(2));
 			get_val_ops.push_back(make_string(""));
 			get_val_ops.push_back(make_string(""));
-			emit(body, UdonInstruction::OpCode::CALL, get_val_ops);
+			emit(body, Opcode::CALL, get_val_ops);
 			emit_store_var(body, value_var);
 		}
 		else
@@ -761,7 +761,7 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 			get_val_ops.push_back(make_int(2));
 			get_val_ops.push_back(make_string(""));
 			get_val_ops.push_back(make_string(""));
-			emit(body, UdonInstruction::OpCode::CALL, get_val_ops);
+			emit(body, Opcode::CALL, get_val_ops);
 			emit_store_var(body, key_var);
 		}
 
@@ -776,21 +776,21 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 			body[ci].operands[0].int_value = static_cast<s64>(continue_target);
 
 		emit_load_var(body, idx_var);
-		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(1) });
-		emit(body, UdonInstruction::OpCode::ADD);
+		emit(body, Opcode::PUSH_LITERAL, { make_int(1) });
+		emit(body, Opcode::ADD);
 		emit_store_var(body, idx_var);
 
-		emit(body, UdonInstruction::OpCode::JUMP, { make_int(static_cast<s64>(cond_index)) });
+		emit(body, Opcode::JUMP, { make_int(static_cast<s64>(cond_index)) });
 		size_t else_check = body.size();
 
 		size_t final_exit = 0;
 		if (match_keyword("else"))
 		{
 			emit_load_var(body, idx_var);
-			emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(0) });
-			emit(body, UdonInstruction::OpCode::EQ);
+			emit(body, Opcode::PUSH_LITERAL, { make_int(0) });
+			emit(body, Opcode::EQ);
 			size_t skip_else = body.size();
-			emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+			emit(body, Opcode::JUMP_IF_FALSE, { make_int(0) });
 
 			if (!parse_statement_or_block(body, ctx, false))
 				return false;
@@ -865,10 +865,10 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 					return false;
 
 				emit_load_var(body, tmp_var);
-				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { case_val });
-				emit(body, UdonInstruction::OpCode::EQ);
+				emit(body, Opcode::PUSH_LITERAL, { case_val });
+				emit(body, Opcode::EQ);
 				size_t jz_index = body.size();
-				emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+				emit(body, Opcode::JUMP_IF_FALSE, { make_int(0) });
 
 				while (!is_end())
 				{
@@ -882,7 +882,7 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 				}
 
 				size_t end_jump = body.size();
-				emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
+				emit(body, Opcode::JUMP, { make_int(0) });
 				body[jz_index].operands[0].int_value = static_cast<s64>(body.size());
 				loop_stack.back().break_jumps.push_back(end_jump);
 			}
@@ -952,9 +952,9 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 			ops.push_back(make_int(static_cast<s64>(value_count)));
 			for (size_t i = 0; i < value_count; ++i)
 				ops.push_back(make_string(""));
-			emit(body, UdonInstruction::OpCode::CALL, ops);
+			emit(body, Opcode::CALL, ops);
 		}
-		emit(body, UdonInstruction::OpCode::RETURN);
+		emit(body, Opcode::RETURN);
 		return true;
 	}
 
@@ -965,7 +965,7 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		size_t target_depth = loop_stack.back().scope_depth;
 		emit_unwind_to_depth(ctx, body, target_depth);
 		size_t jmp_idx = body.size();
-		emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
+		emit(body, Opcode::JUMP, { make_int(0) });
 		loop_stack.back().break_jumps.push_back(jmp_idx);
 		return true;
 	}
@@ -977,7 +977,7 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		size_t target_depth = loop_stack.back().scope_depth;
 		emit_unwind_to_depth(ctx, body, target_depth);
 		size_t jmp_idx = body.size();
-		emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
+		emit(body, Opcode::JUMP, { make_int(0) });
 		loop_stack.back().continue_jumps.push_back(jmp_idx);
 		return true;
 	}
@@ -986,7 +986,7 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 	if (!parse_assignment_or_expression(body, ctx, produced))
 		return false;
 	if (produced)
-		emit(body, UdonInstruction::OpCode::POP);
+		emit(body, Opcode::POP);
 	return true;
 }
 
@@ -1003,14 +1003,14 @@ bool Parser::parse_ternary(std::vector<UdonInstruction>& body, FunctionContext& 
 	while (match_symbol("?"))
 	{
 		size_t jmp_false = body.size();
-		emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+		emit(body, Opcode::JUMP_IF_FALSE, { make_int(0) });
 		bool prev_stop = stop_at_colon;
 		stop_at_colon = true;
 		if (!parse_expression(body, ctx))
 			return false;
 		stop_at_colon = prev_stop;
 		size_t jmp_end = body.size();
-		emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
+		emit(body, Opcode::JUMP, { make_int(0) });
 		if (!expect_symbol(":", "Expected ':' in ternary expression"))
 			return false;
 		size_t else_index = body.size();
@@ -1032,16 +1032,16 @@ bool Parser::parse_or(std::vector<UdonInstruction>& body, FunctionContext& ctx)
 		return false;
 	while (match_symbol("||"))
 	{
-		emit(body, UdonInstruction::OpCode::TO_BOOL);
+		emit(body, Opcode::TO_BOOL);
 		size_t jz_index = body.size();
-		emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
-		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_bool(true) });
+		emit(body, Opcode::JUMP_IF_FALSE, { make_int(0) });
+		emit(body, Opcode::PUSH_LITERAL, { make_bool(true) });
 		size_t jmp_end = body.size();
-		emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
+		emit(body, Opcode::JUMP, { make_int(0) });
 		body[jz_index].operands[0].int_value = static_cast<s64>(body.size());
 		if (!parse_and(body, ctx))
 			return false;
-		emit(body, UdonInstruction::OpCode::TO_BOOL);
+		emit(body, Opcode::TO_BOOL);
 		body[jmp_end].operands[0].int_value = static_cast<s64>(body.size());
 	}
 	return true;
@@ -1053,16 +1053,16 @@ bool Parser::parse_and(std::vector<UdonInstruction>& body, FunctionContext& ctx)
 		return false;
 	while (match_symbol("&&"))
 	{
-		emit(body, UdonInstruction::OpCode::TO_BOOL);
+		emit(body, Opcode::TO_BOOL);
 		size_t jz_index = body.size();
-		emit(body, UdonInstruction::OpCode::JUMP_IF_FALSE, { make_int(0) });
+		emit(body, Opcode::JUMP_IF_FALSE, { make_int(0) });
 		if (!parse_equality(body, ctx))
 			return false;
-		emit(body, UdonInstruction::OpCode::TO_BOOL);
+		emit(body, Opcode::TO_BOOL);
 		size_t jmp_end = body.size();
-		emit(body, UdonInstruction::OpCode::JUMP, { make_int(0) });
+		emit(body, Opcode::JUMP, { make_int(0) });
 		body[jz_index].operands[0].int_value = static_cast<s64>(body.size());
-		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_bool(false) });
+		emit(body, Opcode::PUSH_LITERAL, { make_bool(false) });
 		body[jmp_end].operands[0].int_value = static_cast<s64>(body.size());
 	}
 	return true;
@@ -1078,13 +1078,13 @@ bool Parser::parse_equality(std::vector<UdonInstruction>& body, FunctionContext&
 		{
 			if (!parse_comparison(body, ctx))
 				return false;
-			emit(body, UdonInstruction::OpCode::EQ);
+			emit(body, Opcode::EQ);
 		}
 		else if (match_symbol("!="))
 		{
 			if (!parse_comparison(body, ctx))
 				return false;
-			emit(body, UdonInstruction::OpCode::NEQ);
+			emit(body, Opcode::NEQ);
 		}
 		else
 		{
@@ -1104,25 +1104,25 @@ bool Parser::parse_comparison(std::vector<UdonInstruction>& body, FunctionContex
 		{
 			if (!parse_additive(body, ctx))
 				return false;
-			emit(body, UdonInstruction::OpCode::LT);
+			emit(body, Opcode::LT);
 		}
 		else if (match_symbol(">"))
 		{
 			if (!parse_additive(body, ctx))
 				return false;
-			emit(body, UdonInstruction::OpCode::GT);
+			emit(body, Opcode::GT);
 		}
 		else if (match_symbol("<="))
 		{
 			if (!parse_additive(body, ctx))
 				return false;
-			emit(body, UdonInstruction::OpCode::LTE);
+			emit(body, Opcode::LTE);
 		}
 		else if (match_symbol(">="))
 		{
 			if (!parse_additive(body, ctx))
 				return false;
-			emit(body, UdonInstruction::OpCode::GTE);
+			emit(body, Opcode::GTE);
 		}
 		else
 		{
@@ -1147,8 +1147,8 @@ bool Parser::parse_assignment_or_expression(std::vector<UdonInstruction>& body, 
 			emit_load_var(body, tmp_var);
 			if (use_index)
 			{
-				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(static_cast<s64>(idx)) });
-				emit(body, UdonInstruction::OpCode::GET_PROP, { make_string("[index]") });
+				emit(body, Opcode::PUSH_LITERAL, { make_int(static_cast<s64>(idx)) });
+				emit(body, Opcode::GET_PROP, { make_string("[index]") });
 			}
 		};
 
@@ -1174,7 +1174,7 @@ bool Parser::parse_assignment_or_expression(std::vector<UdonInstruction>& body, 
 		{
 			if (names.empty())
 			{
-				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_none() });
+				emit(body, Opcode::PUSH_LITERAL, { make_none() });
 			}
 			else
 			{
@@ -1184,16 +1184,16 @@ bool Parser::parse_assignment_or_expression(std::vector<UdonInstruction>& body, 
 		return true;
 	};
 
-	auto compound_opcode_for = [](const std::string& op, UdonInstruction::OpCode& out) -> bool
+	auto compound_opcode_for = [](const std::string& op, Opcode& out) -> bool
 	{
 		if (op == "+=")
-			out = UdonInstruction::OpCode::ADD;
+			out = Opcode::ADD;
 		else if (op == "-=")
-			out = UdonInstruction::OpCode::SUB;
+			out = Opcode::SUB;
 		else if (op == "*=")
-			out = UdonInstruction::OpCode::MUL;
+			out = Opcode::MUL;
 		else if (op == "/=")
-			out = UdonInstruction::OpCode::DIV;
+			out = Opcode::DIV;
 		else
 			return false;
 		return true;
@@ -1239,10 +1239,10 @@ bool Parser::parse_assignment_or_expression(std::vector<UdonInstruction>& body, 
 				declare_variable(ctx, n);
 				ResolvedVariable var_ref;
 				resolve_variable(ctx, n, var_ref);
-				emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_none() });
+				emit(body, Opcode::PUSH_LITERAL, { make_none() });
 				emit_store_var(body, var_ref);
 			}
-			emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_none() });
+			emit(body, Opcode::PUSH_LITERAL, { make_none() });
 		}
 		produced_value = true;
 		return true;
@@ -1315,7 +1315,7 @@ bool Parser::parse_assignment_or_expression(std::vector<UdonInstruction>& body, 
 				tokens[bracket_end + 1].type == Token::Type::Symbol)
 			{
 				const std::string assign_op = tokens[bracket_end + 1].text;
-				UdonInstruction::OpCode compound_op{};
+				Opcode compound_op{};
 				bool is_compound = compound_opcode_for(assign_op, compound_op);
 				if (assign_op == "=" || is_compound)
 				{
@@ -1331,7 +1331,7 @@ bool Parser::parse_assignment_or_expression(std::vector<UdonInstruction>& body, 
 					advance(); // '['
 					emit_load_var(body, base_ref);
 					for (const auto& prop : prop_chain)
-						emit(body, UdonInstruction::OpCode::GET_PROP, { make_string(prop) });
+						emit(body, Opcode::GET_PROP, { make_string(prop) });
 					if (!parse_expression(body, ctx))
 						return false;
 					if (!expect_symbol("]", "Expected ']' after index"))
@@ -1347,7 +1347,7 @@ bool Parser::parse_assignment_or_expression(std::vector<UdonInstruction>& body, 
 						advance(); // operator
 						emit_load_var(body, obj_tmp);
 						emit_load_var(body, idx_tmp);
-						emit(body, UdonInstruction::OpCode::GET_PROP, { make_string("[index]") });
+						emit(body, Opcode::GET_PROP, { make_string("[index]") });
 						if (!parse_expression(body, ctx))
 							return false;
 						emit(body, compound_op);
@@ -1355,14 +1355,14 @@ bool Parser::parse_assignment_or_expression(std::vector<UdonInstruction>& body, 
 						emit_load_var(body, obj_tmp);
 						emit_load_var(body, idx_tmp);
 						emit_load_var(body, res_tmp);
-						emit(body, UdonInstruction::OpCode::STORE_PROP, { make_string("[index]") });
+						emit(body, Opcode::STORE_PROP, { make_string("[index]") });
 					}
 					else
 					{
 						advance(); // '='
 						if (!parse_expression(body, ctx))
 							return false;
-						emit(body, UdonInstruction::OpCode::STORE_PROP, { make_string("[index]") });
+						emit(body, Opcode::STORE_PROP, { make_string("[index]") });
 					}
 					produced_value = false;
 					return true;
@@ -1372,7 +1372,7 @@ bool Parser::parse_assignment_or_expression(std::vector<UdonInstruction>& body, 
 		if (!prop_chain.empty() && la < tokens.size() && tokens[la].type == Token::Type::Symbol)
 		{
 			const std::string assign_op = tokens[la].text;
-			UdonInstruction::OpCode compound_op{};
+			Opcode compound_op{};
 			bool is_compound = compound_opcode_for(assign_op, compound_op);
 			if (assign_op == "=" || is_compound)
 			{
@@ -1388,12 +1388,12 @@ bool Parser::parse_assignment_or_expression(std::vector<UdonInstruction>& body, 
 				advance(); // assignment operator
 				emit_load_var(body, base_ref);
 				for (size_t i = 0; i + 1 < prop_chain.size(); ++i)
-					emit(body, UdonInstruction::OpCode::GET_PROP, { make_string(prop_chain[i]) });
+					emit(body, Opcode::GET_PROP, { make_string(prop_chain[i]) });
 				if (!is_compound)
 				{
 					if (!parse_expression(body, ctx))
 						return false;
-					emit(body, UdonInstruction::OpCode::STORE_PROP, { make_string(prop_chain.back()) });
+					emit(body, Opcode::STORE_PROP, { make_string(prop_chain.back()) });
 				}
 				else
 				{
@@ -1401,14 +1401,14 @@ bool Parser::parse_assignment_or_expression(std::vector<UdonInstruction>& body, 
 					ResolvedVariable res_tmp = make_temp_var("__tmp_res_" + std::to_string(body.size()));
 					emit_store_var(body, obj_tmp);
 					emit_load_var(body, obj_tmp);
-					emit(body, UdonInstruction::OpCode::GET_PROP, { make_string(prop_chain.back()) });
+					emit(body, Opcode::GET_PROP, { make_string(prop_chain.back()) });
 					if (!parse_expression(body, ctx))
 						return false;
 					emit(body, compound_op);
 					emit_store_var(body, res_tmp);
 					emit_load_var(body, obj_tmp);
 					emit_load_var(body, res_tmp);
-					emit(body, UdonInstruction::OpCode::STORE_PROP, { make_string(prop_chain.back()) });
+					emit(body, Opcode::STORE_PROP, { make_string(prop_chain.back()) });
 				}
 				produced_value = false;
 				return true;
@@ -1424,7 +1424,7 @@ bool Parser::parse_assignment_or_expression(std::vector<UdonInstruction>& body, 
 				if (tokens[lookahead + 2].type == Token::Type::Symbol)
 				{
 					const std::string assign_op = tokens[lookahead + 2].text;
-					UdonInstruction::OpCode compound_op{};
+					Opcode compound_op{};
 					bool is_compound = compound_opcode_for(assign_op, compound_op);
 					if (assign_op == "=" || is_compound)
 					{
@@ -1442,7 +1442,7 @@ bool Parser::parse_assignment_or_expression(std::vector<UdonInstruction>& body, 
 						{
 							if (!parse_expression(body, ctx))
 								return false;
-							emit(body, UdonInstruction::OpCode::STORE_PROP, { make_string(prop_name) });
+							emit(body, Opcode::STORE_PROP, { make_string(prop_name) });
 						}
 						else
 						{
@@ -1450,14 +1450,14 @@ bool Parser::parse_assignment_or_expression(std::vector<UdonInstruction>& body, 
 							ResolvedVariable res_tmp = make_temp_var("__tmp_res_" + std::to_string(body.size()));
 							emit_store_var(body, obj_tmp);
 							emit_load_var(body, obj_tmp);
-							emit(body, UdonInstruction::OpCode::GET_PROP, { make_string(prop_name) });
+							emit(body, Opcode::GET_PROP, { make_string(prop_name) });
 							if (!parse_expression(body, ctx))
 								return false;
 							emit(body, compound_op);
 							emit_store_var(body, res_tmp);
 							emit_load_var(body, obj_tmp);
 							emit_load_var(body, res_tmp);
-							emit(body, UdonInstruction::OpCode::STORE_PROP, { make_string(prop_name) });
+							emit(body, Opcode::STORE_PROP, { make_string(prop_name) });
 						}
 						produced_value = false;
 						return true;
@@ -1484,7 +1484,7 @@ bool Parser::parse_assignment_or_expression(std::vector<UdonInstruction>& body, 
 					tokens[bracket_end + 1].type == Token::Type::Symbol)
 				{
 					const std::string assign_op = tokens[bracket_end + 1].text;
-					UdonInstruction::OpCode compound_op{};
+					Opcode compound_op{};
 					bool is_compound = compound_opcode_for(assign_op, compound_op);
 					if (assign_op == "=" || is_compound)
 					{
@@ -1509,7 +1509,7 @@ bool Parser::parse_assignment_or_expression(std::vector<UdonInstruction>& body, 
 							advance(); // operator
 							emit_load_var(body, obj_tmp);
 							emit_load_var(body, idx_tmp);
-							emit(body, UdonInstruction::OpCode::GET_PROP, { make_string("[index]") });
+							emit(body, Opcode::GET_PROP, { make_string("[index]") });
 							if (!parse_expression(body, ctx))
 								return false;
 							emit(body, compound_op);
@@ -1517,14 +1517,14 @@ bool Parser::parse_assignment_or_expression(std::vector<UdonInstruction>& body, 
 							emit_load_var(body, obj_tmp);
 							emit_load_var(body, idx_tmp);
 							emit_load_var(body, res_tmp);
-							emit(body, UdonInstruction::OpCode::STORE_PROP, { make_string("[index]") });
+							emit(body, Opcode::STORE_PROP, { make_string("[index]") });
 						}
 						else
 						{
 							advance(); // '='
 							if (!parse_expression(body, ctx))
 								return false;
-							emit(body, UdonInstruction::OpCode::STORE_PROP, { make_string("[index]") });
+							emit(body, Opcode::STORE_PROP, { make_string("[index]") });
 						}
 						produced_value = false;
 						return true;
@@ -1538,7 +1538,7 @@ bool Parser::parse_assignment_or_expression(std::vector<UdonInstruction>& body, 
 	{
 		const std::string name = advance().text;
 		std::string op = tokens[current].text;
-		UdonInstruction::OpCode compound_op{};
+		Opcode compound_op{};
 		if (op == "=" || compound_opcode_for(op, compound_op))
 		{
 			ResolvedVariable var_ref;
@@ -1572,19 +1572,19 @@ bool Parser::parse_additive(std::vector<UdonInstruction>& body, FunctionContext&
 		{
 			if (!parse_multiplicative(body, ctx))
 				return false;
-			emit(body, UdonInstruction::OpCode::ADD);
+			emit(body, Opcode::ADD);
 		}
 		else if (match_symbol("-"))
 		{
 			if (!parse_multiplicative(body, ctx))
 				return false;
-			emit(body, UdonInstruction::OpCode::SUB);
+			emit(body, Opcode::SUB);
 		}
 		else if (match_symbol(".."))
 		{
 			if (!parse_multiplicative(body, ctx))
 				return false;
-			emit(body, UdonInstruction::OpCode::CONCAT);
+			emit(body, Opcode::CONCAT);
 		}
 		else
 		{
@@ -1604,19 +1604,19 @@ bool Parser::parse_multiplicative(std::vector<UdonInstruction>& body, FunctionCo
 		{
 			if (!parse_unary(body, ctx))
 				return false;
-			emit(body, UdonInstruction::OpCode::MUL);
+			emit(body, Opcode::MUL);
 		}
 		else if (match_symbol("/"))
 		{
 			if (!parse_unary(body, ctx))
 				return false;
-			emit(body, UdonInstruction::OpCode::DIV);
+			emit(body, Opcode::DIV);
 		}
 		else if (match_symbol("%"))
 		{
 			if (!parse_unary(body, ctx))
 				return false;
-			emit(body, UdonInstruction::OpCode::MOD);
+			emit(body, Opcode::MOD);
 		}
 		else
 		{
@@ -1632,15 +1632,15 @@ bool Parser::parse_unary(std::vector<UdonInstruction>& body, FunctionContext& ct
 	{
 		if (!parse_unary(body, ctx))
 			return false;
-		emit(body, UdonInstruction::OpCode::NEGATE);
+		emit(body, Opcode::NEGATE);
 		return true;
 	}
 	if (match_symbol("!"))
 	{
 		if (!parse_unary(body, ctx))
 			return false;
-		emit(body, UdonInstruction::OpCode::TO_BOOL);
-		emit(body, UdonInstruction::OpCode::LOGICAL_NOT);
+		emit(body, Opcode::TO_BOOL);
+		emit(body, Opcode::LOGICAL_NOT);
 		return true;
 	}
 	if (match_symbol("++") || match_symbol("--"))
@@ -1653,8 +1653,8 @@ bool Parser::parse_unary(std::vector<UdonInstruction>& body, FunctionContext& ct
 		if (!resolve_variable(ctx, name, var_ref))
 			return !make_error(previous(), "Undeclared variable '" + name + "'").has_error;
 		emit_load_var(body, var_ref);
-		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(1) });
-		emit(body, inc ? UdonInstruction::OpCode::ADD : UdonInstruction::OpCode::SUB);
+		emit(body, Opcode::PUSH_LITERAL, { make_int(1) });
+		emit(body, inc ? Opcode::ADD : Opcode::SUB);
 		emit_store_var(body, var_ref);
 		emit_load_var(body, var_ref);
 		return true;
@@ -1686,7 +1686,7 @@ bool Parser::parse_postfix(std::vector<UdonInstruction>& body, FunctionContext& 
 				return false;
 			if (!expect_symbol("]", "Expected ']' after index"))
 				return false;
-			emit(body, UdonInstruction::OpCode::GET_PROP, { make_string("[index]") });
+			emit(body, Opcode::GET_PROP, { make_string("[index]") });
 			continue;
 		}
 		if (match_symbol("("))
@@ -1706,7 +1706,7 @@ bool Parser::parse_postfix(std::vector<UdonInstruction>& body, FunctionContext& 
 			std::vector<UdonValue> operands;
 			operands.push_back(make_string("")); // empty callee signals dynamic call using callable on stack
 			operands.push_back(make_int(static_cast<s64>(arg_count)));
-			emit(body, UdonInstruction::OpCode::CALL, operands);
+			emit(body, Opcode::CALL, operands);
 			continue;
 		}
 		break;
@@ -1748,7 +1748,7 @@ bool Parser::parse_method_postfix(std::vector<UdonInstruction>& body, FunctionCo
 	operands.push_back(make_int(static_cast<s64>(arg_count)));
 	for (const auto& n : arg_names)
 		operands.push_back(make_string(n));
-	emit(body, UdonInstruction::OpCode::CALL, operands);
+	emit(body, Opcode::CALL, operands);
 	return true;
 }
 
@@ -1757,7 +1757,7 @@ bool Parser::parse_key_postfix(std::vector<UdonInstruction>& body)
 	if (peek().type != Token::Type::Identifier && peek().type != Token::Type::String && peek().type != Token::Type::Number)
 		return !make_error(peek(), "Expected key after ':'").has_error;
 	std::string key = advance().text;
-	emit(body, UdonInstruction::OpCode::GET_PROP, { make_string(key) });
+	emit(body, Opcode::GET_PROP, { make_string(key) });
 	return true;
 }
 
@@ -1848,7 +1848,7 @@ bool Parser::parse_function_literal(std::vector<UdonInstruction>& body, Function
 	if (!variadic_param.empty())
 		variadic[fn_name] = variadic_param;
 
-	emit(body, UdonInstruction::OpCode::MAKE_CLOSURE, { make_string(fn_name) });
+	emit(body, Opcode::MAKE_CLOSURE, { make_string(fn_name) });
 	return true;
 }
 
@@ -1866,15 +1866,15 @@ bool Parser::parse_primary(std::vector<UdonInstruction>& body, FunctionContext& 
 		const std::string num_text = advance().text;
 		const bool is_float = num_text.find('.') != std::string::npos || num_text.find('e') != std::string::npos || num_text.find('E') != std::string::npos;
 		if (is_float)
-			emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_float(std::stod(num_text)) });
+			emit(body, Opcode::PUSH_LITERAL, { make_float(std::stod(num_text)) });
 		else
-			emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(std::stoll(num_text)) });
+			emit(body, Opcode::PUSH_LITERAL, { make_int(std::stoll(num_text)) });
 		return parse_postfix(body, ctx);
 	}
 
 	if (peek().type == Token::Type::String)
 	{
-		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_string(advance().text) });
+		emit(body, Opcode::PUSH_LITERAL, { make_string(advance().text) });
 		return parse_postfix(body, ctx);
 	}
 
@@ -1924,7 +1924,7 @@ bool Parser::parse_primary(std::vector<UdonInstruction>& body, FunctionContext& 
 				for (const auto& n : arg_names)
 					operands.push_back(make_string(n));
 			}
-			emit(body, UdonInstruction::OpCode::CALL, operands);
+			emit(body, Opcode::CALL, operands);
 			return parse_postfix(body, ctx);
 		}
 
@@ -1934,8 +1934,8 @@ bool Parser::parse_primary(std::vector<UdonInstruction>& body, FunctionContext& 
 		if (match_symbol("++") || match_symbol("--"))
 		{
 			bool inc = previous().text == "++";
-			emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(1) });
-			emit(body, inc ? UdonInstruction::OpCode::ADD : UdonInstruction::OpCode::SUB);
+			emit(body, Opcode::PUSH_LITERAL, { make_int(1) });
+			emit(body, inc ? Opcode::ADD : Opcode::SUB);
 			emit_store_var(body, var_ref);
 			emit_load_var(body, var_ref);
 		}
@@ -1950,7 +1950,7 @@ bool Parser::parse_primary(std::vector<UdonInstruction>& body, FunctionContext& 
 			std::vector<UdonValue> ops;
 			ops.push_back(make_string("array"));
 			ops.push_back(make_int(0));
-			emit(body, UdonInstruction::OpCode::CALL, ops);
+			emit(body, Opcode::CALL, ops);
 			return parse_postfix(body, ctx);
 		}
 
@@ -1969,32 +1969,32 @@ bool Parser::parse_primary(std::vector<UdonInstruction>& body, FunctionContext& 
 		ops.push_back(make_int(count));
 		for (int i = 0; i < count; ++i)
 			ops.push_back(make_string(""));
-		emit(body, UdonInstruction::OpCode::CALL, ops);
+		emit(body, Opcode::CALL, ops);
 		return parse_postfix(body, ctx);
 	}
 
 	if (peek().type == Token::Type::Keyword && (peek().text == "true" || peek().text == "false"))
 	{
 		const bool val = advance().text == "true";
-		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_bool(val) });
+		emit(body, Opcode::PUSH_LITERAL, { make_bool(val) });
 		return parse_postfix(body, ctx);
 	}
 	if (peek().type == Token::Type::Keyword && peek().text == "none")
 	{
 		advance();
-		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_none() });
+		emit(body, Opcode::PUSH_LITERAL, { make_none() });
 		return parse_postfix(body, ctx);
 	}
 
 	if (peek().type == Token::Type::Template)
 	{
 		Token templ = advance();
-		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_string(templ.template_content) });
+		emit(body, Opcode::PUSH_LITERAL, { make_string(templ.template_content) });
 		std::vector<UdonValue> ops;
 		ops.push_back(make_string(templ.text));
 		ops.push_back(make_int(1));
 		ops.push_back(make_string(""));
-		emit(body, UdonInstruction::OpCode::CALL, ops);
+		emit(body, Opcode::CALL, ops);
 		return parse_postfix(body, ctx);
 	}
 
@@ -2062,26 +2062,26 @@ bool Parser::parse_primary(std::vector<UdonInstruction>& body, FunctionContext& 
 		}
 
 		for (const auto& k : keys)
-			emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_string(k) });
+			emit(body, Opcode::PUSH_LITERAL, { make_string(k) });
 
-		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_int(static_cast<s64>(keys.size())) });
+		emit(body, Opcode::PUSH_LITERAL, { make_int(static_cast<s64>(keys.size())) });
 
 		std::vector<UdonValue> ops;
 		ops.push_back(make_string("__object_literal"));
 		ops.push_back(make_int(static_cast<s64>(keys.size() * 2 + 1))); // total arg count
 
-		emit(body, UdonInstruction::OpCode::CALL, ops);
+		emit(body, Opcode::CALL, ops);
 		return parse_postfix(body, ctx);
 	}
 	if (peek().type == Token::Type::Template)
 	{
 		Token templ = advance();
-		emit(body, UdonInstruction::OpCode::PUSH_LITERAL, { make_string(templ.template_content) });
+		emit(body, Opcode::PUSH_LITERAL, { make_string(templ.template_content) });
 		std::vector<UdonValue> ops;
 		ops.push_back(make_string(templ.text));
 		ops.push_back(make_int(1));
 		ops.push_back(make_string(""));
-		emit(body, UdonInstruction::OpCode::CALL, ops);
+		emit(body, Opcode::CALL, ops);
 		return parse_postfix(body, ctx);
 	}
 	return !make_error(peek(), "Unexpected token '" + peek().text + "' in expression").has_error;

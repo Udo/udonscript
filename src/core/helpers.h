@@ -25,7 +25,7 @@ inline bool array_get(const UdonValue& v, const std::string& key, UdonValue& out
 void array_set(UdonValue& v, const UdonValue& key, const UdonValue& value);
 inline void array_set(UdonValue& v, const std::string& key, const UdonValue& value) { array_set(v, make_string(key), value); }
 bool equal_values(const UdonValue& a, const UdonValue& b, UdonValue& out);
-bool compare_values(const UdonValue& a, const UdonValue& b, UdonInstruction::OpCode op, UdonValue& out);
+bool compare_values(const UdonValue& a, const UdonValue& b, Opcode op, UdonValue& out);
 bool is_truthy(const UdonValue& v);
 bool add_values(const UdonValue& lhs, const UdonValue& rhs, UdonValue& out);
 bool sub_values(const UdonValue& lhs, const UdonValue& rhs, UdonValue& out);

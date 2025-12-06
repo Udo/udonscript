@@ -163,7 +163,7 @@ struct Parser
 	bool is_declared(const FunctionContext& ctx, const std::string& name, ResolvedVariable* resolved = nullptr) const;
 	bool parse_global_var();
 	bool parse_function();
-	void emit(std::vector<UdonInstruction>& body, UdonInstruction::OpCode op, const std::vector<UdonValue>& operands = {}, const Token* tok = nullptr);
+	void emit(std::vector<UdonInstruction>& body, Opcode op, const std::vector<UdonValue>& operands = {}, const Token* tok = nullptr);
 	bool parse_block(std::vector<UdonInstruction>& body, FunctionContext& ctx, bool create_scope = true);
 	bool parse_statement_or_block(std::vector<UdonInstruction>& body, FunctionContext& ctx, bool create_scope = true);
 	bool parse_statement(std::vector<UdonInstruction>& body, FunctionContext& ctx);
