@@ -880,7 +880,7 @@ std::string render_node(const JsxNode& node,
 					args.push_back(make_object_value(ctx.interp, ctx.options));
 
 					UdonValue component_out;
-					CodeLocation call_err = ctx.interp ? ctx.interp->invoke_function(comp_val, args, {}, component_out) : CodeLocation{};
+					CodeLocation call_err = ctx.interp ? ctx.interp->invoke_function(comp_val, args, component_out) : CodeLocation{};
 					if (ctx.err)
 						*ctx.err = call_err;
 					if (call_err.has_error)

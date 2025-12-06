@@ -85,7 +85,7 @@ bool run_test(const TestCase& test, std::string& actual_output, std::string& err
 	}
 
 	UdonValue return_value;
-	CodeLocation run_result = interp.run("main", {}, {}, return_value);
+	CodeLocation run_result = interp.run("main", {}, return_value);
 
 	std::cout.rdbuf(old_cout);
 

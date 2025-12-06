@@ -136,7 +136,7 @@ int main(int argc, char* argv[])
 			{
 				UdonValue return_value;
 				std::string func_name = "__repl_eval_" + std::to_string(line_number);
-				CodeLocation run_result = interp.run(func_name, {}, {}, return_value);
+				CodeLocation run_result = interp.run(func_name, {}, return_value);
 
 				if (run_result.has_error)
 				{

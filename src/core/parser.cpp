@@ -708,7 +708,6 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		std::vector<UdonValue> call_ops;
 		call_ops.push_back(make_string("keys"));
 		call_ops.push_back(make_int(1));
-		call_ops.push_back(make_string(""));
 		emit(body, Opcode::CALL, call_ops);
 		emit_store_var(body, keys_var);
 
@@ -724,7 +723,6 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		std::vector<UdonValue> len_ops;
 		len_ops.push_back(make_string("len"));
 		len_ops.push_back(make_int(1));
-		len_ops.push_back(make_string(""));
 		emit(body, Opcode::CALL, len_ops);
 		emit(body, Opcode::LT);
 		size_t jmp_false_index = body.size();
@@ -735,8 +733,6 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 		std::vector<UdonValue> get_key_ops;
 		get_key_ops.push_back(make_string("array_get"));
 		get_key_ops.push_back(make_int(2));
-		get_key_ops.push_back(make_string(""));
-		get_key_ops.push_back(make_string(""));
 		emit(body, Opcode::CALL, get_key_ops);
 		emit_store_var(body, key_var);
 
@@ -747,8 +743,6 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 			std::vector<UdonValue> get_val_ops;
 			get_val_ops.push_back(make_string("array_get"));
 			get_val_ops.push_back(make_int(2));
-			get_val_ops.push_back(make_string(""));
-			get_val_ops.push_back(make_string(""));
 			emit(body, Opcode::CALL, get_val_ops);
 			emit_store_var(body, value_var);
 		}
@@ -759,8 +753,6 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 			std::vector<UdonValue> get_val_ops;
 			get_val_ops.push_back(make_string("array_get"));
 			get_val_ops.push_back(make_int(2));
-			get_val_ops.push_back(make_string(""));
-			get_val_ops.push_back(make_string(""));
 			emit(body, Opcode::CALL, get_val_ops);
 			emit_store_var(body, key_var);
 		}
@@ -950,8 +942,6 @@ bool Parser::parse_statement(std::vector<UdonInstruction>& body, FunctionContext
 			std::vector<UdonValue> ops;
 			ops.push_back(make_string("array"));
 			ops.push_back(make_int(static_cast<s64>(value_count)));
-			for (size_t i = 0; i < value_count; ++i)
-				ops.push_back(make_string(""));
 			emit(body, Opcode::CALL, ops);
 		}
 		emit(body, Opcode::RETURN);
@@ -1696,6 +1686,8 @@ bool Parser::parse_postfix(std::vector<UdonInstruction>& body, FunctionContext& 
 			{
 				do
 				{
+					if (peek().type == Token::Type::Identifier && tokens.size() > current + 1 && tokens[current + 1].type == Token::Type::Symbol && tokens[current + 1].text == "=")
+						return !make_error(peek(), "Named arguments are not supported").has_error;
 					if (!parse_expression(body, ctx))
 						return false;
 					arg_count++;
@@ -1722,22 +1714,15 @@ bool Parser::parse_method_postfix(std::vector<UdonInstruction>& body, FunctionCo
 	if (!match_symbol("("))
 		return !make_error(peek(), "Expected '(' after method access").has_error;
 
-	std::vector<std::string> arg_names;
 	size_t arg_count = 1; // receiver already on stack
-	arg_names.push_back("");
 	if (!match_symbol(")"))
 	{
 		do
 		{
-			std::string arg_name;
 			if (peek().type == Token::Type::Identifier && tokens.size() > current + 1 && tokens[current + 1].type == Token::Type::Symbol && tokens[current + 1].text == "=")
-			{
-				arg_name = advance().text;
-				advance(); // '='
-			}
+				return !make_error(peek(), "Named arguments are not supported").has_error;
 			if (!parse_expression(body, ctx))
 				return false;
-			arg_names.push_back(arg_name);
 			arg_count++;
 		} while (match_symbol(","));
 		if (!expect_symbol(")", "Expected ')' after arguments"))
@@ -1746,8 +1731,6 @@ bool Parser::parse_method_postfix(std::vector<UdonInstruction>& body, FunctionCo
 	std::vector<UdonValue> operands;
 	operands.push_back(make_string(member));
 	operands.push_back(make_int(static_cast<s64>(arg_count)));
-	for (const auto& n : arg_names)
-		operands.push_back(make_string(n));
 	emit(body, Opcode::CALL, operands);
 	return true;
 }
@@ -1888,21 +1871,15 @@ bool Parser::parse_primary(std::vector<UdonInstruction>& body, FunctionContext& 
 			bool dynamic_call = has_var;
 			if (dynamic_call)
 				emit_load_var(body, var_ref);
-			std::vector<std::string> arg_names;
 			size_t arg_count = 0;
 			if (!match_symbol(")"))
 			{
 				do
 				{
-					std::string arg_name;
-					if (!dynamic_call && peek().type == Token::Type::Identifier && tokens.size() > current + 1 && tokens[current + 1].type == Token::Type::Symbol && tokens[current + 1].text == "=")
-					{
-						arg_name = advance().text;
-						advance(); // '='
-					}
+					if (peek().type == Token::Type::Identifier && tokens.size() > current + 1 && tokens[current + 1].type == Token::Type::Symbol && tokens[current + 1].text == "=")
+						return !make_error(peek(), "Named arguments are not supported").has_error;
 					if (!parse_expression(body, ctx))
 						return false;
-					arg_names.push_back(arg_name);
 					arg_count++;
 				} while (match_symbol(","));
 				if (!expect_symbol(")", "Expected ')' after arguments"))
@@ -1919,11 +1896,6 @@ bool Parser::parse_primary(std::vector<UdonInstruction>& body, FunctionContext& 
 				operands.push_back(make_string(ident.text));
 			}
 			operands.push_back(make_int(static_cast<s64>(arg_count)));
-			if (!dynamic_call)
-			{
-				for (const auto& n : arg_names)
-					operands.push_back(make_string(n));
-			}
 			emit(body, Opcode::CALL, operands);
 			return parse_postfix(body, ctx);
 		}
@@ -1967,8 +1939,6 @@ bool Parser::parse_primary(std::vector<UdonInstruction>& body, FunctionContext& 
 		std::vector<UdonValue> ops;
 		ops.push_back(make_string("array"));
 		ops.push_back(make_int(count));
-		for (int i = 0; i < count; ++i)
-			ops.push_back(make_string(""));
 		emit(body, Opcode::CALL, ops);
 		return parse_postfix(body, ctx);
 	}
@@ -1993,7 +1963,6 @@ bool Parser::parse_primary(std::vector<UdonInstruction>& body, FunctionContext& 
 		std::vector<UdonValue> ops;
 		ops.push_back(make_string(templ.text));
 		ops.push_back(make_int(1));
-		ops.push_back(make_string(""));
 		emit(body, Opcode::CALL, ops);
 		return parse_postfix(body, ctx);
 	}
@@ -2080,7 +2049,6 @@ bool Parser::parse_primary(std::vector<UdonInstruction>& body, FunctionContext& 
 		std::vector<UdonValue> ops;
 		ops.push_back(make_string(templ.text));
 		ops.push_back(make_int(1));
-		ops.push_back(make_string(""));
 		emit(body, Opcode::CALL, ops);
 		return parse_postfix(body, ctx);
 	}

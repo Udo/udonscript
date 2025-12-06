@@ -329,7 +329,6 @@ void array_foreach(const UdonValue& v, const std::function<bool(const UdonValue&
 	}
 }
 
-// --- Hashing helpers for UdonValue ---
 namespace
 {
 	bool try_integral_double(double d, s64& out)
@@ -337,7 +336,6 @@ namespace
 		double int_part = 0.0;
 		if (std::modf(d, &int_part) != 0.0)
 			return false;
-		// Guard range before cast.
 		if (int_part < static_cast<double>(std::numeric_limits<s64>::min()) || int_part > static_cast<double>(std::numeric_limits<s64>::max()))
 			return false;
 		out = static_cast<s64>(int_part);

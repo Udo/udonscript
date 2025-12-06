@@ -701,7 +701,7 @@ void register_builtins(UdonInterpreter* interp)
 {
 	auto unary = [interp](const std::string& name, double (*fn)(double))
 	{
-		interp->register_function(name, "x:number", "number", [fn, name](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		interp->register_function(name, "x:number", "number", [fn, name](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 		{
 			if (positional.size() != 1 || !is_numeric(positional[0]))
 			{
@@ -716,7 +716,7 @@ void register_builtins(UdonInterpreter* interp)
 
 	auto binary = [interp](const std::string& name, double (*fn)(double, double))
 	{
-		interp->register_function(name, "a:number, b:number", "number", [fn, name](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		interp->register_function(name, "a:number, b:number", "number", [fn, name](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 		{
 			if (positional.size() != 2 || !is_numeric(positional[0]) || !is_numeric(positional[1]))
 			{
@@ -729,7 +729,7 @@ void register_builtins(UdonInterpreter* interp)
 		});
 	};
 
-	interp->register_function("array", "values:any...", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation&)
+	interp->register_function("array", "values:any...", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation&)
 	{
 		out.type = UdonValue::Type::Array;
 		out.array_map = interp->allocate_array();
@@ -741,7 +741,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("__object_literal", "", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("__object_literal", "", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.empty())
 		{
@@ -788,7 +788,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("print", "values:any...", "none", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation&)
+	interp->register_function("print", "values:any...", "none", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation&)
 	{
 		std::ostringstream ss;
 		bool first = true;
@@ -804,7 +804,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("puts", "values:any...", "none", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation&)
+	interp->register_function("puts", "values:any...", "none", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation&)
 	{
 		std::ostringstream ss;
 		for (const auto& v : positional)
@@ -816,7 +816,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("__gc_collect", "budget_ms?:int", "none", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("__gc_collect", "budget_ms?:int", "none", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		u32 budget = 0;
 		if (!positional.empty())
@@ -836,7 +836,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("__gc_stats", "", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>&, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation&)
+	interp->register_function("__gc_stats", "", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>&, UdonValue& out, CodeLocation&)
 	{
 		out = make_array();
 		array_set(out, "envs", make_int(static_cast<s64>(interp->heap_environments.size())));
@@ -856,7 +856,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("globals", "", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>&, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation&)
+	interp->register_function("globals", "", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>&, UdonValue& out, CodeLocation&)
 	{
 		out = make_array();
 		for (const auto& kv : interp->globals)
@@ -871,7 +871,7 @@ void register_builtins(UdonInterpreter* interp)
 			interp->builtins[alias] = it->second;
 	};
 
-	interp->register_function("keys", "arr:any", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("keys", "arr:any", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.empty())
 		{
@@ -928,7 +928,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("sort", "arr:any, options?:any", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("sort", "arr:any, options?:any", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.empty() || positional[0].type != UdonValue::Type::Array || !positional[0].array_map)
 		{
@@ -996,7 +996,7 @@ void register_builtins(UdonInterpreter* interp)
 				std::vector<UdonValue> args;
 				args.push_back(base);
 				UdonValue key_out;
-				CodeLocation call_err = interp->invoke_function(key_fn, args, {}, key_out);
+				CodeLocation call_err = interp->invoke_function(key_fn, args, key_out);
 				if (call_err.has_error)
 				{
 					err = call_err;
@@ -1032,7 +1032,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("ksort", "arr:any, options?:any", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("ksort", "arr:any, options?:any", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.empty() || positional[0].type != UdonValue::Type::Array || !positional[0].array_map)
 		{
@@ -1083,7 +1083,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("array_get", "arr:any, key:any", "any", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("array_get", "arr:any, key:any", "any", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() < 2)
 		{
@@ -1121,7 +1121,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("load_from_file", "path:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("load_from_file", "path:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -1143,7 +1143,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("save_to_file", "path:string, data:any", "none", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("save_to_file", "path:string, data:any", "none", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 2)
 		{
@@ -1165,7 +1165,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("read_entire_file", "path:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("read_entire_file", "path:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -1187,7 +1187,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("write_entire_file", "path:string, data:any", "none", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("write_entire_file", "path:string, data:any", "none", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 2)
 		{
@@ -1209,7 +1209,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("dl_open", "path:string", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("dl_open", "path:string", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 #if !defined(__unix__) && !defined(__APPLE__)
 		(void)interp;
@@ -1255,7 +1255,7 @@ void register_builtins(UdonInterpreter* interp)
 			return fnv;
 		};
 
-		auto call_handler = [ctx](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err) -> bool
+		auto call_handler = [ctx](UdonInterpreter* interp, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err) -> bool
 		{
 #if defined(__unix__) || defined(__APPLE__)
 			if (positional.size() < 1)
@@ -1417,7 +1417,7 @@ void register_builtins(UdonInterpreter* interp)
 #endif
 		};
 
-		auto close_handler = [ctx](UdonInterpreter* interp, const std::vector<UdonValue>&, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err) -> bool
+		auto close_handler = [ctx](UdonInterpreter* interp, const std::vector<UdonValue>&, UdonValue& out, CodeLocation& err) -> bool
 		{
 #if defined(__unix__) || defined(__APPLE__)
 			if (!interp->close_dl_handle(ctx->handle_id))
@@ -1443,7 +1443,7 @@ void register_builtins(UdonInterpreter* interp)
 #endif
 	});
 
-	interp->register_function("file_size", "path:string", "int", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("file_size", "path:string", "int", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -1464,7 +1464,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("file_time", "path:string", "int", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("file_time", "path:string", "int", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -1484,7 +1484,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("import", "path:string", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("import", "path:string", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1 || positional[0].type != UdonValue::Type::String)
 		{
@@ -1544,7 +1544,7 @@ void register_builtins(UdonInterpreter* interp)
 				fn_val.function = interp->allocate_function();
 				fn_val.function->template_body = name;
 				fn_val.function->user_data = ctx;
-				fn_val.function->native_handler = [ctx](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>& named, UdonValue& out, CodeLocation& inner_err) -> bool
+				fn_val.function->native_handler = [ctx](UdonInterpreter* interp, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& inner_err) -> bool
 				{
 					UdonInterpreter* sub = interp->get_imported_interpreter(ctx->sub_id);
 					if (!sub)
@@ -1553,7 +1553,7 @@ void register_builtins(UdonInterpreter* interp)
 						inner_err.opt_error_message = "import_forward: invalid module";
 						return true;
 					}
-					CodeLocation nested = sub->run(ctx->fn, positional, named, out);
+					CodeLocation nested = sub->run(ctx->fn, positional, out);
 					if (nested.has_error)
 						inner_err = nested;
 					return true;
@@ -1564,7 +1564,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("shell", "parts:any...", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("shell", "parts:any...", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.empty())
 		{
@@ -1608,7 +1608,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("to_shellarg", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("to_shellarg", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -1632,7 +1632,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("to_htmlsafe", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("to_htmlsafe", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -1672,7 +1672,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("to_sqlarg", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("to_sqlarg", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -1695,7 +1695,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("split", "s:string, delim:string", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("split", "s:string, delim:string", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 2)
 		{
@@ -1727,7 +1727,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("glyphs", "s:string", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("glyphs", "s:string", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -1760,7 +1760,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("join", "arr:array, delim:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("join", "arr:array, delim:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 2 || positional[0].type != UdonValue::Type::Array)
 		{
@@ -1797,7 +1797,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("concat", "parts:any...", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation&)
+	interp->register_function("concat", "parts:any...", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation&)
 	{
 		std::ostringstream ss;
 		for (const auto& v : positional)
@@ -1806,7 +1806,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("chr", "code:int", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("chr", "code:int", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -1846,7 +1846,7 @@ void register_builtins(UdonInterpreter* interp)
 
 	auto binary_int = [interp](const std::string& name, s64 (*fn)(s64, s64))
 	{
-		interp->register_function(name, "a:int, b:int", "int", [fn, name](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+		interp->register_function(name, "a:int, b:int", "int", [fn, name](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 		{
 			if (positional.size() != 2 || !is_integer_type(positional[0]) || !is_integer_type(positional[1]))
 			{
@@ -1865,7 +1865,7 @@ void register_builtins(UdonInterpreter* interp)
 	{ return a | b; });
 	binary_int("bit_xor", [](s64 a, s64 b)
 	{ return a ^ b; });
-	interp->register_function("bit_not", "x:int", "int", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("bit_not", "x:int", "int", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1 || !is_integer_type(positional[0]))
 		{
@@ -1881,7 +1881,7 @@ void register_builtins(UdonInterpreter* interp)
 	binary_int("bit_shr", [](s64 a, s64 b)
 	{ return a >> b; });
 
-	interp->register_function("crc32", "data:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("crc32", "data:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1 || positional[0].type != UdonValue::Type::String)
 		{
@@ -1895,7 +1895,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("md5", "data:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("md5", "data:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1 || positional[0].type != UdonValue::Type::String)
 		{
@@ -1907,7 +1907,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("sha1", "data:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("sha1", "data:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1 || positional[0].type != UdonValue::Type::String)
 		{
@@ -1919,7 +1919,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("to_base", "value:number, digits:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("to_base", "value:number, digits:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 2 || positional[1].type != UdonValue::Type::String)
 		{
@@ -1961,7 +1961,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("from_base", "value:string, digits:string", "int", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("from_base", "value:string, digits:string", "int", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 2 || positional[0].type != UdonValue::Type::String || positional[1].type != UdonValue::Type::String)
 		{
@@ -2006,7 +2006,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("length", "UdonValue:any", "int", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("length", "UdonValue:any", "int", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -2025,7 +2025,7 @@ void register_builtins(UdonInterpreter* interp)
 	});
 	register_alias("len", "length");
 
-	interp->register_function("$html", "template:string", "function", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("$html", "template:string", "function", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1 || positional[0].type != UdonValue::Type::String)
 		{
@@ -2037,7 +2037,7 @@ void register_builtins(UdonInterpreter* interp)
 		const std::string tmpl = positional[0].string_value;
 		auto* fn_obj = interp->allocate_function();
 		fn_obj->template_body = tmpl;
-		fn_obj->native_handler = [tmpl](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>& named, UdonValue& out, CodeLocation& inner_err) -> bool
+		fn_obj->native_handler = [tmpl](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& inner_err) -> bool
 		{
 			std::unordered_map<std::string, UdonValue> replacements;
 			if (!positional.empty() && positional[0].type == UdonValue::Type::Array && positional[0].array_map)
@@ -2048,8 +2048,6 @@ void register_builtins(UdonInterpreter* interp)
 					return true;
 				});
 			}
-			for (const auto& kv : named)
-				replacements[kv.first] = kv.second;
 
 			std::string rendered;
 			size_t pos = 0;
@@ -2084,7 +2082,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("$jsx", "template:string, components:any?, options:any?", "function", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("$jsx", "template:string, components:any?, options:any?", "function", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.empty() || positional.size() > 3 || positional[0].type != UdonValue::Type::String)
 		{
@@ -2137,7 +2135,7 @@ void register_builtins(UdonInterpreter* interp)
 			fn_obj->rooted_values.push_back(kv.second);
 		for (const auto& kv : options)
 			fn_obj->rooted_values.push_back(kv.second);
-		fn_obj->native_handler = [data](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>& named, UdonValue& out, CodeLocation& inner_err)
+		fn_obj->native_handler = [data](UdonInterpreter* interp, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& inner_err)
 		{
 			std::unordered_map<std::string, UdonValue> props;
 			if (!positional.empty() && positional[0].type == UdonValue::Type::Array && positional[0].array_map)
@@ -2148,8 +2146,6 @@ void register_builtins(UdonInterpreter* interp)
 					return true;
 				});
 			}
-			for (const auto& kv : named)
-				props[kv.first] = kv.second;
 
 			CodeLocation render_err{};
 			std::string rendered = jsx_render(*data->tmpl, props, data->components, data->options, interp, render_err);
@@ -2167,7 +2163,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("substr", "s:string, start:int, count:int", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("substr", "s:string, start:int, count:int", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() < 2 || positional.size() > 3)
 		{
@@ -2224,7 +2220,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("replace", "s:string, old:string, new:string, count:int", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("replace", "s:string, old:string, new:string, count:int", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() < 3 || positional.size() > 4)
 		{
@@ -2258,7 +2254,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("starts_with", "s:string, prefix:string", "bool", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("starts_with", "s:string, prefix:string", "bool", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 2)
 		{
@@ -2273,7 +2269,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("ends_with", "s:string, suffix:string", "bool", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("ends_with", "s:string, suffix:string", "bool", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 2)
 		{
@@ -2288,7 +2284,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("find", "s:string, needle:string, start:int", "int", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("find", "s:string, needle:string, start:int", "int", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() < 2 || positional.size() > 3)
 		{
@@ -2313,7 +2309,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("ord", "s:string", "int", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("ord", "s:string", "int", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -2331,7 +2327,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("contains", "hay:any, needle:any", "bool", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("contains", "hay:any, needle:any", "bool", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 2)
 		{
@@ -2363,7 +2359,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("to_upper", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("to_upper", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -2378,7 +2374,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("to_lower", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("to_lower", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -2393,7 +2389,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("trim", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("trim", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -2406,7 +2402,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	auto to_int_fn = [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	auto to_int_fn = [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -2431,7 +2427,7 @@ void register_builtins(UdonInterpreter* interp)
 	};
 	interp->register_function("to_int", "value:any", "int", to_int_fn);
 
-	auto to_float_fn = [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	auto to_float_fn = [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -2456,7 +2452,7 @@ void register_builtins(UdonInterpreter* interp)
 	};
 	interp->register_function("to_float", "value:any", "float", to_float_fn);
 
-	interp->register_function("to_string", "UdonValue:any", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("to_string", "UdonValue:any", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -2468,7 +2464,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("to_bool", "UdonValue:any", "bool", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("to_bool", "UdonValue:any", "bool", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -2489,7 +2485,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("typeof", "UdonValue:any", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("typeof", "UdonValue:any", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -2501,8 +2497,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-
-	interp->register_function("range", "start:int, stop:int, step:int", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("range", "start:int, stop:int, step:int", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.empty() || positional.size() > 3)
 		{
@@ -2543,14 +2538,14 @@ void register_builtins(UdonInterpreter* interp)
 	});
 
 	static std::mt19937 rng(static_cast<unsigned int>(std::chrono::steady_clock::now().time_since_epoch().count()));
-	interp->register_function("rand", "", "float", [](UdonInterpreter*, const std::vector<UdonValue>&, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation&)
+	interp->register_function("rand", "", "float", [](UdonInterpreter*, const std::vector<UdonValue>&, UdonValue& out, CodeLocation&)
 	{
 		std::uniform_real_distribution<double> dist(0.0, 1.0);
 		out = make_float(dist(rng));
 		return true;
 	});
 
-	interp->register_function("push", "arr:array, UdonValue:any", "none", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("push", "arr:array, UdonValue:any", "none", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 2 || positional[0].type != UdonValue::Type::Array)
 		{
@@ -2564,7 +2559,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("pop", "arr:array, key:any", "any", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("pop", "arr:array, key:any", "any", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.empty() || positional[0].type != UdonValue::Type::Array)
 		{
@@ -2605,7 +2600,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("delete", "arr:array, key:any", "any", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("delete", "arr:array, key:any", "any", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 2 || positional[0].type != UdonValue::Type::Array)
 		{
@@ -2620,7 +2615,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("shift", "arr:array", "any", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("shift", "arr:array", "any", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1 || positional[0].type != UdonValue::Type::Array)
 		{
@@ -2679,7 +2674,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("unshift", "arr:array, UdonValue:any", "none", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("unshift", "arr:array, UdonValue:any", "none", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 2 || positional[0].type != UdonValue::Type::Array)
 		{
@@ -2732,7 +2727,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("time", "", "int", [](UdonInterpreter*, const std::vector<UdonValue>&, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation&)
+	interp->register_function("time", "", "int", [](UdonInterpreter*, const std::vector<UdonValue>&, UdonValue& out, CodeLocation&)
 	{
 		using namespace std::chrono;
 		auto now = system_clock::now();
@@ -2741,7 +2736,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("to_json", "UdonValue:any", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("to_json", "UdonValue:any", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -2753,7 +2748,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("from_json", "s:string", "any", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("from_json", "s:string", "any", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -2769,7 +2764,7 @@ void register_builtins(UdonInterpreter* interp)
 		}
 		return true;
 	});
-	interp->register_function("to_uri", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("to_uri", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -2781,7 +2776,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("from_uri", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("from_uri", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -2793,7 +2788,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("to_base64", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("to_base64", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -2805,7 +2800,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("from_base64", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("from_base64", "s:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{
@@ -2817,7 +2812,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("parse_formdata", "s:string", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, const std::unordered_map<std::string, UdonValue>&, UdonValue& out, CodeLocation& err)
+	interp->register_function("parse_formdata", "s:string", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 1)
 		{

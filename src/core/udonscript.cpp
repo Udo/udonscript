@@ -23,14 +23,13 @@ void register_builtins(UdonInterpreter* interp);
 bool handle_builtin(UdonInterpreter* interp,
 	const std::string& name,
 	const std::vector<UdonValue>& positional,
-	const std::unordered_map<std::string, UdonValue>& named,
 	UdonValue& out,
 	CodeLocation& err)
 {
 	auto it = interp->builtins.find(name);
 	if (it == interp->builtins.end())
 		return false;
-	return it->second.function(interp, positional, named, out, err);
+	return it->second.function(interp, positional, out, err);
 }
 
 struct FunctionBinding;
@@ -79,29 +78,6 @@ struct ScratchVector
 			data.resize(size_hint);
 	}
 	~ScratchVector()
-	{
-		if (pool)
-		{
-			data.clear();
-			pool->push_back(std::move(data));
-		}
-	}
-};
-
-struct ScratchMap
-{
-	std::unordered_map<std::string, UdonValue> data;
-	std::vector<std::unordered_map<std::string, UdonValue>>* pool = nullptr;
-	explicit ScratchMap(std::vector<std::unordered_map<std::string, UdonValue>>* p) : pool(p)
-	{
-		if (pool && !pool->empty())
-		{
-			data = std::move(pool->back());
-			pool->pop_back();
-		}
-		data.clear();
-	}
-	~ScratchMap()
 	{
 		if (pool)
 		{
@@ -223,7 +199,6 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 	const std::vector<s32>& param_slot_indices,
 	s32 variadic_slot_index,
 	std::vector<UdonValue> args,
-	std::unordered_map<std::string, UdonValue> named_args,
 	UdonValue& return_value)
 {
 	CodeLocation ok{};
@@ -239,17 +214,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 		return false;
 	};
 
-	for (const auto& kv : named_args)
-	{
-		if (std::find(param_names.begin(), param_names.end(), kv.first) == param_names.end())
-		{
-			ok.has_error = true;
-			ok.opt_error_message = "Unknown named argument '" + kv.first + "'";
-			return ok;
-		}
-	}
-
-	if (!has_variadic && args.size() > param_names.size() && named_args.empty())
+	if (!has_variadic && args.size() > param_names.size())
 	{
 		ok.has_error = true;
 		ok.opt_error_message = "Too many positional arguments";
@@ -301,13 +266,8 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				store_slot(0, variadic_slot_index, make_none());
 			continue;
 		}
-		auto nit = named_args.find(name);
 		UdonValue param_value = make_none();
-		if (nit != named_args.end())
-		{
-			param_value = nit->second;
-		}
-		else if (positional_index < args.size())
+		if (positional_index < args.size())
 		{
 			param_value = args[positional_index++];
 		}
@@ -322,12 +282,6 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 			array_set(vargs, std::to_string(i - positional_index), args[i]);
 		if (variadic_slot_index >= 0)
 			store_slot(0, variadic_slot_index, vargs);
-	}
-	else if (!has_variadic && !named_args.empty() && args.size() > param_names.size())
-	{
-		ok.has_error = true;
-		ok.opt_error_message = "Too many positional arguments";
-		return ok;
 	}
 
 	ValueStack eval_stack(ok);
@@ -395,8 +349,6 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 			instr.cached_kind = UdonInstruction::CachedKind::None;
 			instr.cached_builtin = UdonBuiltinFunction();
 			instr.cached_fn = nullptr;
-			instr.cached_call_arg_names.clear();
-			instr.cached_has_named_args = false;
 		}
 	};
 
@@ -751,55 +703,16 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				}
 				const std::string callee = instr.operands[0].string_value;
 				const s32 arg_count = instr.operands[1].int_value;
-				if (instr.cached_call_arg_names.empty() && arg_count > 0)
-				{
-					instr.cached_call_arg_names.resize(static_cast<size_t>(arg_count));
-					instr.cached_has_named_args = false;
-					for (size_t i = 2; i < instr.operands.size() && (i - 2) < instr.cached_call_arg_names.size(); ++i)
-					{
-						const std::string& nm = instr.operands[i].string_value;
-						instr.cached_call_arg_names[i - 2] = nm;
-						if (!nm.empty())
-							instr.cached_has_named_args = true;
-					}
-				}
-				const auto& arg_names = instr.cached_call_arg_names;
-				const bool has_named_args = instr.cached_has_named_args;
 
-				ScratchVector<UdonValue> call_args_buf(&interp->value_buffer_pool, static_cast<size_t>(std::max<s32>(arg_count, 0)));
-				auto& call_args = call_args_buf.data;
-				ScopedRoot call_arg_root(interp, &call_args);
+				ScratchVector<UdonValue> positional_buf(&interp->value_buffer_pool, static_cast<size_t>(std::max<s32>(arg_count, 0)));
+				auto& positional = positional_buf.data;
+				ScopedRoot positional_root(interp, &positional);
 				for (s32 idx = arg_count - 1; idx >= 0; --idx)
 				{
 					UdonValue v{};
 					if (!eval_stack.pop(v))
 						return ok;
-					call_args[static_cast<size_t>(idx)] = v;
-				}
-
-				ScratchVector<UdonValue> positional_buf(&interp->value_buffer_pool);
-				auto& positional = positional_buf.data;
-				positional.clear();
-				positional.reserve(static_cast<size_t>(std::max<s32>(arg_count, 0)));
-
-				ScratchMap named_buf(has_named_args ? &interp->map_buffer_pool : nullptr);
-				auto& named = named_buf.data;
-				if (has_named_args)
-					named.reserve(static_cast<size_t>(std::max<s32>(arg_count, 0)));
-
-				ScopedRoot positional_root(interp, &positional);
-				ScopedRoot named_root(has_named_args ? interp : nullptr);
-				for (size_t i = 0; i < call_args.size(); ++i)
-				{
-					if (has_named_args && i < arg_names.size() && !arg_names[i].empty())
-					{
-						auto& dest = named[arg_names[i]];
-						dest = call_args[i];
-						if (has_named_args)
-							named_root.add(dest);
-					}
-					else
-						positional.push_back(call_args[i]);
+					positional[static_cast<size_t>(idx)] = v;
 				}
 
 				UdonValue call_result;
@@ -810,7 +723,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				{
 					if (fn_val.type != UdonValue::Type::Function || !fn_val.function)
 						return false;
-					CodeLocation nested = interp->invoke_function(fn_val, positional, named, call_result);
+					CodeLocation nested = interp->invoke_function(fn_val, positional, call_result);
 					if (nested.has_error)
 						inner_err = nested;
 					return true;
@@ -835,7 +748,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 
 				if (instr.cached_kind == UdonInstruction::CachedKind::Builtin)
 				{
-					instr.cached_builtin(interp, positional, named, call_result, inner_err);
+					instr.cached_builtin(interp, positional, call_result, inner_err);
 					handled = !inner_err.has_error;
 				}
 				else if (instr.cached_kind == UdonInstruction::CachedKind::Function && instr.cached_fn)
@@ -843,7 +756,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 					UdonValue fn_val;
 					fn_val.type = UdonValue::Type::Function;
 					fn_val.function = instr.cached_fn;
-					CodeLocation nested = interp->invoke_function(fn_val, positional, named, call_result);
+					CodeLocation nested = interp->invoke_function(fn_val, positional, call_result);
 					if (nested.has_error)
 						inner_err = nested;
 					else
@@ -872,7 +785,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 
 				if (!handled)
 				{
-					bool handled_builtin = handle_builtin(interp, callee, positional, named, call_result, inner_err);
+					bool handled_builtin = handle_builtin(interp, callee, positional, call_result, inner_err);
 					if (handled_builtin)
 					{
 						if (inner_err.has_error)
@@ -888,7 +801,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 					UdonValue fn_val;
 					if (resolve_function_by_name(interp, callee, fn_val))
 					{
-						CodeLocation nested = interp->invoke_function(fn_val, positional, named, call_result);
+						CodeLocation nested = interp->invoke_function(fn_val, positional, call_result);
 						if (nested.has_error)
 							return nested;
 						instr.cached_kind = UdonInstruction::CachedKind::Function;
@@ -1033,7 +946,6 @@ void UdonInterpreter::reset_state(bool release_heaps, bool release_handles)
 	active_value_roots.clear();
 	code_cache_versions.clear();
 	value_buffer_pool.clear();
-	map_buffer_pool.clear();
 	gc_runs = 0;
 	gc_time_ms = 0;
 	cache_version = 1;
@@ -1143,7 +1055,6 @@ static bool resolve_function_by_name(UdonInterpreter* interp, const std::string&
 
 CodeLocation UdonInterpreter::invoke_function(const UdonValue& fn,
 	const std::vector<UdonValue>& positional,
-	const std::unordered_map<std::string, UdonValue>& named,
 	UdonValue& out)
 {
 	ScopedRoot fn_root(this);
@@ -1162,7 +1073,7 @@ CodeLocation UdonInterpreter::invoke_function(const UdonValue& fn,
 
 	if (fn.function->native_handler)
 	{
-		fn.function->native_handler(this, positional, named, out, err);
+		fn.function->native_handler(this, positional, out, err);
 		return err;
 	}
 
@@ -1185,7 +1096,6 @@ CodeLocation UdonInterpreter::invoke_function(const UdonValue& fn,
 		binding.param_slots ? *binding.param_slots : empty_slots,
 		binding.variadic_slot,
 		positional,
-		named,
 		out);
 	return err;
 }
@@ -1420,7 +1330,7 @@ CodeLocation UdonInterpreter::compile_append(const std::string& source_code)
 		function_frame_sizes[init_fn] = 0;
 		function_variadic_slot[init_fn] = -1;
 		UdonValue dummy;
-		CodeLocation init_res = run(init_fn, {}, {}, dummy);
+		CodeLocation init_res = run(init_fn, {}, dummy);
 		if (init_res.has_error)
 			return init_res;
 	}
@@ -1429,7 +1339,6 @@ CodeLocation UdonInterpreter::compile_append(const std::string& source_code)
 
 CodeLocation UdonInterpreter::run(std::string function_name,
 	std::vector<UdonValue> args,
-	std::unordered_map<std::string, UdonValue> named_args,
 	UdonValue& return_value)
 {
 	struct Guard
@@ -1488,7 +1397,6 @@ CodeLocation UdonInterpreter::run(std::string function_name,
 		param_slot_lookup,
 		variadic_slot,
 		std::move(args),
-		std::move(named_args),
 		return_value);
 }
 

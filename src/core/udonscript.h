@@ -81,16 +81,17 @@ struct UdonValue
 	UdonValue() : type(Type::None), ptr_value(nullptr), array_map(nullptr), function(nullptr) {}
 };
 
-// Hash helper declarations for value-keyed containers.
 bool is_hashable_value(const UdonValue& v);
 size_t hash_value(const UdonValue& v);
 bool hashable_values_equal(const UdonValue& a, const UdonValue& b);
 
-// Lightweight UdonValue-keyed hash map with separate chaining.
 template <typename T>
 struct ValueHashMap
 {
-	explicit ValueHashMap(size_t initial_buckets = 16) { init_buckets(initial_buckets); }
+	explicit ValueHashMap(size_t initial_buckets = 16)
+	{
+		init_buckets(initial_buckets);
+	}
 
 	void clear()
 	{
@@ -98,8 +99,14 @@ struct ValueHashMap
 		count = 0;
 	}
 
-	size_t size() const { return count; }
-	bool empty() const { return count == 0; }
+	size_t size() const
+	{
+		return count;
+	}
+	bool empty() const
+	{
+		return count == 0;
+	}
 
 	bool contains(const UdonValue& key) const
 	{
@@ -118,7 +125,6 @@ struct ValueHashMap
 		return entry ? &entry->value : nullptr;
 	}
 
-	// Insert or overwrite. Returns false if key is not hashable.
 	bool set(const UdonValue& key, const T& value)
 	{
 		if (!is_hashable_value(key))
@@ -134,7 +140,7 @@ struct ValueHashMap
 				return true;
 			}
 		}
-		bucket.push_back(Entry{key, value, h});
+		bucket.push_back(Entry{ key, value, h });
 		++count;
 		return true;
 	}
@@ -252,7 +258,6 @@ struct ValueHashMap
 
 using UdonBuiltinFunction = std::function<bool(struct UdonInterpreter*,
 	const std::vector<UdonValue>&,
-	const std::unordered_map<std::string, UdonValue>&,
 	UdonValue&,
 	CodeLocation&)>;
 
@@ -320,8 +325,6 @@ struct UdonInstruction
 	mutable CachedKind cached_kind = CachedKind::None;
 	mutable UdonBuiltinFunction cached_builtin;
 	mutable UdonValue::ManagedFunction* cached_fn = nullptr;
-	mutable std::vector<std::string> cached_call_arg_names;
-	mutable bool cached_has_named_args = false;
 };
 
 struct UdonEnvironment
@@ -363,7 +366,6 @@ struct UdonInterpreter
 	std::unordered_map<std::string, UdonValue> function_cache;
 	std::unordered_map<const std::vector<UdonInstruction>*, u64> code_cache_versions;
 	std::vector<std::vector<UdonValue>> value_buffer_pool;
-	std::vector<std::unordered_map<std::string, UdonValue>> map_buffer_pool;
 
 	UdonInterpreter();
 	~UdonInterpreter();
@@ -374,7 +376,6 @@ struct UdonInterpreter
 	void reset_state(bool release_heaps, bool release_handles);
 	CodeLocation run(std::string function_name,
 		std::vector<UdonValue> args,
-		std::unordered_map<std::string, UdonValue> named_args,
 		UdonValue& return_value);
 	void rebuild_global_slots();
 	s32 get_global_slot(const std::string& name) const;
@@ -393,7 +394,6 @@ struct UdonInterpreter
 		UdonBuiltinFunction fn);
 	CodeLocation invoke_function(const UdonValue& fn,
 		const std::vector<UdonValue>& positional,
-		const std::unordered_map<std::string, UdonValue>& named,
 		UdonValue& out);
 	UdonEnvironment* allocate_environment(size_t slot_count, UdonEnvironment* parent);
 	UdonValue::ManagedArray* allocate_array();

@@ -67,7 +67,7 @@ int main(int argc, char* argv[])
 	}
 
 	UdonValue return_value;
-	CodeLocation run_result = interp.run(entry_function, {}, {}, return_value);
+	CodeLocation run_result = interp.run(entry_function, {}, return_value);
 
 	if (run_result.has_error)
 	{
