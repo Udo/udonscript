@@ -190,6 +190,33 @@ static bool get_index_value(const UdonValue& obj, const UdonValue& index, UdonVa
 	return true;
 }
 
+/* auto call_closure = [&](const UdonValue& fn_val) -> bool
+				{
+					if (fn_val.type != UdonValue::Type::Function || !fn_val.function)
+						return false;
+					CodeLocation nested = interp->invoke_function(fn_val, positional, call_result);
+					if (nested.has_error)
+						inner_err = nested;
+					return true;
+				}; */
+bool call_closure(UdonInterpreter* interp,
+	const UdonValue& fn_val,
+	const std::vector<UdonValue>& positional,
+	UdonValue& out,
+	CodeLocation& err)
+{
+	if (fn_val.type != UdonValue::Type::Function || !fn_val.function)
+	{
+		err.has_error = true;
+		err.opt_error_message = "Attempted to call a non-function value";
+		return false;
+	}
+	CodeLocation nested = interp->invoke_function(fn_val, positional, out);
+	if (nested.has_error)
+		err = nested;
+	return !err.has_error;
+}
+
 static CodeLocation execute_function(UdonInterpreter* interp,
 	const std::vector<UdonInstruction>& code,
 	const std::vector<std::string>& param_names,
@@ -389,6 +416,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 		current_col = instr.column;
 		ok.line = current_line;
 		ok.column = current_col;
+		interp->stats.opcode_counts[static_cast<size_t>(instr.opcode_instruction)]++;
 		switch (instr.opcode_instruction)
 		{
 			case Opcode::PUSH_LITERAL:
@@ -719,7 +747,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				CodeLocation inner_err{};
 				inner_err.has_error = false;
 
-				auto call_closure = [&](const UdonValue& fn_val) -> bool
+				/*auto call_closure = [&](const UdonValue& fn_val) -> bool
 				{
 					if (fn_val.type != UdonValue::Type::Function || !fn_val.function)
 						return false;
@@ -727,14 +755,14 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 					if (nested.has_error)
 						inner_err = nested;
 					return true;
-				};
+				};*/
 
 				if (callee.empty())
 				{
 					UdonValue callable;
 					if (!eval_stack.pop(callable))
 						return ok;
-					if (!call_closure(callable))
+					if (!call_closure(interp, callable, positional, call_result, inner_err))
 					{
 						ok.has_error = true;
 						ok.opt_error_message = "Value is not callable";
@@ -763,7 +791,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 						handled = true;
 				}
 
-				if (!positional.empty() && positional[0].type == UdonValue::Type::Array && positional[0].array_map)
+				/*if (!positional.empty() && positional[0].type == UdonValue::Type::Array && positional[0].array_map)
 				{
 					UdonValue member_fn;
 					if (array_get(positional[0], callee, member_fn))
@@ -781,7 +809,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 							inner_err.opt_error_message = "Dot-call on arrays is not supported; use ':' to access properties";
 						}
 					}
-				}
+				}*/
 
 				if (!handled)
 				{
@@ -814,7 +842,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 				{
 					auto git = interp->globals.find(callee);
 					if (git != interp->globals.end())
-						handled = call_closure(git->second);
+						handled = call_closure(interp, git->second, positional, call_result, inner_err);
 				}
 
 				if (!handled)
@@ -1011,6 +1039,7 @@ static bool populate_from_managed(UdonInterpreter* interp, UdonValue::ManagedFun
 
 static bool resolve_function_by_name(UdonInterpreter* interp, const std::string& name, UdonValue& out_fn)
 {
+	++interp->stats.resolve_function_by_name_calls;
 	auto cache_it = interp->function_cache.find(name);
 	if (cache_it != interp->function_cache.end())
 	{

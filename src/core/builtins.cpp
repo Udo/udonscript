@@ -853,6 +853,12 @@ void register_builtins(UdonInterpreter* interp)
 		array_set(out, "active_value_root_sets", make_int(static_cast<s64>(interp->active_value_roots.size())));
 		array_set(out, "gc_runs", make_int(static_cast<s64>(interp->gc_runs)));
 		array_set(out, "gc_ms", make_int(static_cast<s64>(interp->gc_time_ms)));
+		for (size_t i = 0; i < static_cast<size_t>(Opcode::OPCODE_MAX); ++i)
+		{
+			array_set(out, OpcodeNames[i], make_int(static_cast<s64>(interp->stats.opcode_counts[i])));
+		}
+		array_set(out, "resolve_function_by_name", make_int(static_cast<s64>(interp->stats.resolve_function_by_name_calls)));
+
 		return true;
 	});
 

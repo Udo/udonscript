@@ -270,4 +270,5 @@ function main() {
     var parsed_rolls = parse_rolls(input_lines)
     print("Input accessible:", count_accessible(parsed_rolls))
     print("Input total removed:", total_removed(input_lines))
+    print(__gc_stats())
 }

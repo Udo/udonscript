@@ -119,11 +119,7 @@ std::string value_to_string(const UdonValue& v)
 					if (count > 0)
 						ss << ", ";
 					ss << value_to_string(k) << ": " << value_to_string(val);
-					if (++count > 8)
-					{
-						ss << "...";
-						return false;
-					}
+					count++;
 					return true;
 				});
 			}

@@ -304,7 +304,8 @@ enum class Opcode
 	CALL,
 	RETURN,
 	POP,
-	HALT
+	HALT,
+	OPCODE_MAX
 };
 
 struct UdonInstruction
@@ -355,9 +356,15 @@ struct UdonInterpreter
 	std::vector<UdonEnvironment*> heap_environments;
 	std::vector<UdonValue::ManagedArray*> heap_arrays;
 	std::vector<UdonValue::ManagedFunction*> heap_functions;
+
 	u64 gc_runs = 0;
 	u64 gc_time_ms = 0;
 	u64 cache_version = 1;
+	struct Stats {
+		u64 opcode_counts[static_cast<size_t>(Opcode::OPCODE_MAX)] = { 0 };
+		u64 resolve_function_by_name_calls = 0;
+	} stats;
+
 	std::vector<void*> dl_handles;
 	std::vector<std::unique_ptr<UdonInterpreter>> imported_interpreters;
 	s32 global_init_counter = 0;
