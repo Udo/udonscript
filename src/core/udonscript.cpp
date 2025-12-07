@@ -1371,67 +1371,7 @@ CodeLocation UdonInterpreter::run(std::string function_name,
 	std::vector<UdonValue> args,
 	UdonValue& return_value)
 {
-	const char* use_vm2 = std::getenv("UDON_USE_VM2");
-	if (use_vm2 && std::string(use_vm2) == "1")
-		return run_us2(std::move(function_name), std::move(args), return_value);
-
-	struct Guard
-	{
-		UdonInterpreter* self;
-		UdonInterpreter* prev;
-		Guard(UdonInterpreter* s) : self(s), prev(g_udon_current)
-		{
-			g_udon_current = s;
-		}
-		~Guard()
-		{
-			g_udon_current = prev;
-		}
-	} guard(this);
-
-	CodeLocation ok{};
-	ok.has_error = false;
-
-	auto fn_it = instructions.find(function_name);
-	if (fn_it == instructions.end() || !fn_it->second)
-	{
-		ok.has_error = true;
-		ok.opt_error_message = "Function '" + function_name + "' not found";
-		return ok;
-	}
-
-	auto param_it = function_params.find(function_name);
-	std::vector<std::string> param_names = (param_it != function_params.end() && param_it->second)
-											   ? *param_it->second
-											   : std::vector<std::string>();
-	std::string variadic_param;
-	auto var_it = function_variadic.find(function_name);
-	if (var_it != function_variadic.end())
-		variadic_param = var_it->second;
-
-	size_t root_scope_size = 0;
-	auto scope_it = function_frame_sizes.find(function_name);
-	if (scope_it != function_frame_sizes.end())
-		root_scope_size = scope_it->second;
-	std::vector<s32> param_slot_lookup;
-	auto slot_it = function_param_slots.find(function_name);
-	if (slot_it != function_param_slots.end() && slot_it->second)
-		param_slot_lookup = *slot_it->second;
-	s32 variadic_slot = -1;
-	auto vs_it = function_variadic_slot.find(function_name);
-	if (vs_it != function_variadic_slot.end())
-		variadic_slot = vs_it->second;
-
-	return execute_function(this,
-		*fn_it->second,
-		param_names,
-		variadic_param,
-		nullptr,
-		root_scope_size,
-		param_slot_lookup,
-		variadic_slot,
-		std::move(args),
-		return_value);
+	return run_us2(std::move(function_name), std::move(args), return_value);
 }
 
 CodeLocation UdonInterpreter::run_us2(std::string function_name,
@@ -1454,7 +1394,6 @@ CodeLocation UdonInterpreter::run_us2(std::string function_name,
 		}
 	} guard(this);
 	UdonInterpreter2 vm;
-	vm.host = this;
 	if (!vm.load_from_host(this, err))
 		return err;
 	return vm.run(std::move(function_name), std::move(args), return_value);

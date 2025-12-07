@@ -16,6 +16,7 @@
 #include <iterator>
 #include <unordered_set>
 #include "jsx.hpp"
+#include "udonscript2.h"
 #if defined(__unix__) || defined(__APPLE__)
 #include <dlfcn.h>
 #endif
@@ -853,11 +854,25 @@ void register_builtins(UdonInterpreter* interp)
 		array_set(out, "active_value_root_sets", make_int(static_cast<s64>(interp->active_value_roots.size())));
 		array_set(out, "gc_runs", make_int(static_cast<s64>(interp->gc_runs)));
 		array_set(out, "gc_ms", make_int(static_cast<s64>(interp->gc_time_ms)));
+#if !UDON_USE_VM2
 		for (size_t i = 0; i < static_cast<size_t>(Opcode::OPCODE_MAX); ++i)
 		{
 			array_set(out, OpcodeNames[i], make_int(static_cast<s64>(interp->stats.opcode_counts[i])));
 		}
 		array_set(out, "resolve_function_by_name", make_int(static_cast<s64>(interp->stats.resolve_function_by_name_calls)));
+#else
+		if (!interp->stats.opcode2_counts.empty())
+		{
+			for (size_t i = 0; i < interp->stats.opcode2_counts.size() && i < kOpcode2Count; ++i)
+			{
+				array_set(out, opcode2_name(static_cast<Opcode2>(i)), make_int(static_cast<s64>(interp->stats.opcode2_counts[i])));
+			}
+		}
+		else
+		{
+			array_set(out, "opcode_counts", make_string("vm2 counts unavailable"));
+		}
+#endif
 
 		return true;
 	});

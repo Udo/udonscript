@@ -9,7 +9,6 @@ struct UdonInterpreter; // forward to allow reuse of builtins/invoke
 
 struct US2ValueRef
 {
-	// frame_depth = 0 is current frame, 1 is parent, etc.
 	s32 frame_depth = 0;
 	s32 index = 0;
 };
@@ -17,8 +16,8 @@ struct US2ValueRef
 enum class Opcode2
 {
 	NOP,
-	MOVE,       // dst = a
-	LOADK,      // dst = literal
+	MOVE, // dst = a
+	LOADK, // dst = literal
 	POP,
 	LOAD_GLOBAL,
 	STORE_GLOBAL,
@@ -40,12 +39,14 @@ enum class Opcode2
 	LTE,
 	GT,
 	GTE,
-	JUMP,       // jump_target
+	JUMP, // jump_target
 	JUMP_IF_FALSE,
-	CALL,       // a=function ref or named, b = arg count (index in literal.int_value), dst receives result
+	CALL, // a=function ref or named, b = arg count (index in literal.int_value), dst receives result
 	RETURN,
 	HALT,
 };
+
+constexpr size_t kOpcode2Count = static_cast<size_t>(Opcode2::HALT) + 1;
 
 struct US2Instruction
 {
@@ -88,12 +89,9 @@ struct US2Frame
 
 struct UdonInterpreter2
 {
-	// simple value stack that holds all frames contiguously
 	std::vector<UdonValue> value_stack;
 	std::vector<US2Frame> call_stack;
 	std::unordered_map<std::string, US2Function> functions;
-	std::vector<std::vector<UdonValue>*> active_value_roots;
-	UdonInterpreter* host = nullptr; // optional hook into the existing VM for builtins/invoke
 
 	void register_function(const std::string& name, const US2Function& fn);
 	CodeLocation run(const std::string& function_name,
@@ -102,8 +100,7 @@ struct UdonInterpreter2
 	bool load_from_host(UdonInterpreter* host_interp, CodeLocation& err);
 };
 
-// Translate legacy UdonInstruction bytecode into US2 form using a stack-to-slot mapping.
-bool compile_to_us2(UdonInterpreter* host,
+bool compile_to_us2(
 	const std::string& fn_name,
 	const std::vector<UdonInstruction>& legacy,
 	size_t legacy_frame_size,
@@ -111,3 +108,5 @@ bool compile_to_us2(UdonInterpreter* host,
 	CodeLocation& err);
 
 std::string dump_us2_function(const US2Function& fn);
+
+const char* opcode2_name(Opcode2 op);

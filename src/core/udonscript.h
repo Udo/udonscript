@@ -17,6 +17,10 @@
 #endif
 #endif
 
+#ifndef UDON_USE_VM2
+#define UDON_USE_VM2 1
+#endif
+
 struct CodeLocation
 {
 	u32 line;
@@ -360,9 +364,11 @@ struct UdonInterpreter
 	u64 gc_runs = 0;
 	u64 gc_time_ms = 0;
 	u64 cache_version = 1;
-	struct Stats {
+	struct Stats
+	{
 		u64 opcode_counts[static_cast<size_t>(Opcode::OPCODE_MAX)] = { 0 };
 		u64 resolve_function_by_name_calls = 0;
+		std::vector<u64> opcode2_counts; // sized to VM2 opcode count when VM2 executes
 	} stats;
 
 	std::vector<void*> dl_handles;

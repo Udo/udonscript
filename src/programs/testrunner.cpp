@@ -56,7 +56,7 @@ std::vector<std::string> list_files(const std::string& directory, const std::str
 	return files;
 }
 
-bool run_test(const TestCase& test, bool use_vm2, bool dump_us2, std::string& actual_output, std::string& error_msg)
+bool run_test(const TestCase& test, bool dump_us2, std::string& actual_output, std::string& error_msg)
 {
 	std::ostringstream captured;
 	std::streambuf* old_cout = std::cout.rdbuf(captured.rdbuf());
@@ -86,7 +86,7 @@ bool run_test(const TestCase& test, bool use_vm2, bool dump_us2, std::string& ac
 	}
 
 	UdonValue return_value;
-	CodeLocation run_result = use_vm2 ? interp.run_us2("main", {}, return_value) : interp.run("main", {}, return_value);
+	CodeLocation run_result = interp.run_us2("main", {}, return_value);
 
 	if (dump_us2)
 	{
@@ -126,30 +126,17 @@ bool run_test(const TestCase& test, bool use_vm2, bool dump_us2, std::string& ac
 int main(int argc, char* argv[])
 {
 	std::string test_dir = "scripts/testsuite";
-	bool use_vm2 = false;
 	bool dump_us2 = false;
 
 	for (int i = 1; i < argc; ++i)
 	{
 		std::string arg = argv[i];
-		if (arg == "--vm2")
-		{
-			use_vm2 = true;
-			continue;
-		}
 		if (arg == "--dump-us2")
 		{
 			dump_us2 = true;
 			continue;
 		}
-		// first non-flag is test directory
 		test_dir = arg;
-	}
-
-	if (!use_vm2)
-	{
-		const char* env_vm2 = std::getenv("UDON_USE_VM2");
-		use_vm2 = env_vm2 && std::string(env_vm2) == "1";
 	}
 
 	std::ofstream report_file("tmp/testsuite.report");
@@ -157,7 +144,7 @@ int main(int argc, char* argv[])
 	std::cout << "UdonScript Test Runner\n";
 	std::cout << "======================\n";
 	std::cout << "Test directory: " << test_dir << "\n\n";
-	std::cout << "VM: " << (use_vm2 ? "us2" : "legacy") << "\n";
+	std::cout << "VM: us2\n";
 	if (dump_us2)
 		std::cout << "Dumping US2 disassembly for main() when available\n";
 	std::cout << "\n";
@@ -202,7 +189,7 @@ int main(int argc, char* argv[])
 		std::string actual_output;
 		std::string error_msg;
 
-		bool ran_ok = run_test(test, use_vm2, dump_us2, actual_output, error_msg);
+		bool ran_ok = run_test(test, dump_us2, actual_output, error_msg);
 
 		if (!ran_ok)
 		{
