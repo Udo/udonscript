@@ -1,5 +1,6 @@
 #include "udonscript.h"
 #include "helpers.h"
+#include "udonscript2.h"
 #include <cctype>
 #include <iostream>
 #include <sstream>
@@ -1370,6 +1371,10 @@ CodeLocation UdonInterpreter::run(std::string function_name,
 	std::vector<UdonValue> args,
 	UdonValue& return_value)
 {
+	const char* use_vm2 = std::getenv("UDON_USE_VM2");
+	if (use_vm2 && std::string(use_vm2) == "1")
+		return run_us2(std::move(function_name), std::move(args), return_value);
+
 	struct Guard
 	{
 		UdonInterpreter* self;
@@ -1427,6 +1432,32 @@ CodeLocation UdonInterpreter::run(std::string function_name,
 		variadic_slot,
 		std::move(args),
 		return_value);
+}
+
+CodeLocation UdonInterpreter::run_us2(std::string function_name,
+	std::vector<UdonValue> args,
+	UdonValue& return_value)
+{
+	CodeLocation err{};
+	err.has_error = false;
+	struct Guard
+	{
+		UdonInterpreter* self;
+		UdonInterpreter* prev;
+		Guard(UdonInterpreter* s) : self(s), prev(g_udon_current)
+		{
+			g_udon_current = s;
+		}
+		~Guard()
+		{
+			g_udon_current = prev;
+		}
+	} guard(this);
+	UdonInterpreter2 vm;
+	vm.host = this;
+	if (!vm.load_from_host(this, err))
+		return err;
+	return vm.run(std::move(function_name), std::move(args), return_value);
 }
 
 void UdonInterpreter::clear()

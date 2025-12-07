@@ -384,6 +384,9 @@ struct UdonInterpreter
 	CodeLocation run(std::string function_name,
 		std::vector<UdonValue> args,
 		UdonValue& return_value);
+	CodeLocation run_us2(std::string function_name,
+		std::vector<UdonValue> args,
+		UdonValue& return_value);
 	void rebuild_global_slots();
 	s32 get_global_slot(const std::string& name) const;
 	bool get_global_value(const std::string& name, UdonValue& out, s32 slot_hint = -1) const;
