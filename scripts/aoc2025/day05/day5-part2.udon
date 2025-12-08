@@ -1,0 +1,131 @@
+/* The fresh ID ranges are inclusive: the range 3-5 means that ingredient IDs 3, 4, and 5 are all fresh. The ranges can also overlap; an ingredient ID is fresh if it is in any range.
+
+The Elves are trying to determine which of the available ingredient IDs are fresh. In this example, this is done as follows:
+
+    Ingredient ID 1 is spoiled because it does not fall into any range.
+    Ingredient ID 5 is fresh because it falls into range 3-5.
+    Ingredient ID 8 is spoiled.
+    Ingredient ID 11 is fresh because it falls into range 10-14.
+    Ingredient ID 17 is fresh because it falls into range 16-20 as well as range 12-18.
+    Ingredient ID 32 is spoiled.
+
+So, in this example, 3 of the available ingredient IDs are fresh.
+
+Process the database file from the new inventory management system. How many of the available ingredient IDs are fresh?
+
+Your puzzle answer was 607.
+
+The first half of this puzzle is complete! It provides one gold star: *
+--- Part Two ---
+
+The Elves start bringing their spoiled inventory to the trash chute at the back of the kitchen.
+
+So that they can stop bugging you when they get new inventory, the Elves would like to know all of the IDs that the fresh ingredient ID ranges consider to be fresh. An ingredient ID is still considered fresh if it is in any range.
+
+Now, the second section of the database (the available ingredient IDs) is irrelevant. Here are the fresh ingredient ID ranges from the above example:
+
+3-5
+10-14
+16-20
+12-18
+
+The ingredient IDs that these ranges consider to be fresh are 3, 4, 5, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, and 20. So, in this example, the fresh ingredient ID ranges consider a total of 14 ingredient IDs to be fresh.
+
+Process the database file again. How many ingredient IDs are considered to be fresh according to the fresh ingredient ID ranges? */
+
+var example_id_ranges = {
+    fresh_ranges: [
+        [3, 5],
+        [10, 14],
+        [16, 20],
+        [12, 18]
+    ],
+    available_ids: []
+};
+
+function normalize_ranges(pairs) {
+    var ranges = []
+    foreach (var pair in pairs) {
+        var lo = pair[0]
+        var hi = pair[1]
+        if (lo > hi) {
+            var tmp = lo
+            lo = hi
+            hi = tmp
+        }
+        ranges[ranges.len()] = {lo: lo, hi: hi}
+    }
+    return ranges
+}
+
+function parse_ranges_from_lines(lines) {
+    var ranges = []
+    foreach (var line in lines) {
+        var t = trim(line)
+        if (t.len() == 0)
+            continue
+        var parts = t.split("-")
+        if (parts.len() < 2)
+            continue
+        var lo = to_int(trim(parts[0]))
+        var hi = to_int(trim(parts[1]))
+        if (lo > hi) {
+            var tmp = lo
+            lo = hi
+            hi = tmp
+        }
+        ranges[ranges.len()] = {lo: lo, hi: hi}
+    }
+    return ranges
+}
+
+function merge_ranges(sorted_ranges) {
+    var merged = []
+    if (sorted_ranges.len() == 0)
+        return merged
+
+    var cur = {lo: sorted_ranges[0]:lo, hi: sorted_ranges[0]:hi}
+    for (var i = 1; i < sorted_ranges.len(); i = i + 1) {
+        var r = sorted_ranges[i]
+        if (r:lo <= cur:hi + 1) {
+            if (r:hi > cur:hi)
+                cur:hi = r:hi
+        } else {
+            merged[merged.len()] = cur
+            cur = {lo: r:lo, hi: r:hi}
+        }
+    }
+    merged[merged.len()] = cur
+    return merged
+}
+
+function count_fresh_ids_in_ranges(ranges) {
+    var merged = merge_ranges(sort(ranges, {key: function(r) { return r:lo }}))
+    var total = 0
+    foreach (var r in merged)
+        total = total + (r:hi - r:lo + 1)
+    return total
+}
+
+function load_ranges(path) {
+    var lines = read_entire_file(path).split("\n")
+    var range_lines = []
+    foreach (var line in lines) {
+        if (trim(line).len() == 0)
+            break
+        range_lines[range_lines.len()] = line
+    }
+    return parse_ranges_from_lines(range_lines)
+}
+
+function main() {
+    print("=== Day 5.2: Cafeteria ===")
+
+    var example_ranges = normalize_ranges(example_id_ranges:fresh_ranges)
+    var example_total = count_fresh_ids_in_ranges(example_ranges)
+    print("Example fresh IDs (expected 14):", example_total)
+
+    var real_ranges = load_ranges("scripts/aoc2025/day05/input.txt")
+    var answer = count_fresh_ids_in_ranges(real_ranges)
+    print("Fresh IDs across all ranges:", answer)
+}
