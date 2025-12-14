@@ -43,12 +43,6 @@ var input_path = "scripts/aoc2025/day01/input.txt"
 var dial_size = 100
 var start_position = 50
 
-function wrap_position(pos) {
-    var wrapped = pos % dial_size
-    if (wrapped < 0) wrapped = wrapped + dial_size
-    return wrapped
-}
-
 // Count how many times a rotation crosses or lands on 0.
 function zero_hits_in_move(pos, direction, distance) {
     var hits = 0
@@ -81,9 +75,9 @@ function count_zero_hits(lines) {
         var distance = to_int(line.substr(1))
         zeros = zeros + zero_hits_in_move(pos, direction, distance)
         if (direction == "L")
-            pos = wrap_position(pos - distance)
+            pos = mod_floor(pos - distance, dial_size)
         else if (direction == "R")
-            pos = wrap_position(pos + distance)
+            pos = mod_floor(pos + distance, dial_size)
     }
     return zeros
 }

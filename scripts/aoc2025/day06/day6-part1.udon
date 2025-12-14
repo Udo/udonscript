@@ -1,0 +1,198 @@
+/* --- Day 6: Trash Compactor ---
+
+After helping the Elves in the kitchen, you were taking a break and helping them re-enact a movie scene when you over-enthusiastically jumped into the garbage chute!
+
+A brief fall later, you find yourself in a garbage smasher. Unfortunately, the door's been magnetically sealed.
+
+As you try to find a way out, you are approached by a family of cephalopods! They're pretty sure they can get the door open, but it will take some time. While you wait, they're curious if you can help the youngest cephalopod with her math homework.
+
+Cephalopod math doesn't look that different from normal math. The math worksheet (your puzzle input) consists of a list of problems; each problem has a group of numbers that need to be either added (+) or multiplied (*) together.
+
+However, the problems are arranged a little strangely; they seem to be presented next to each other in a very long horizontal list. For example:
+
+123 328  51 64 
+ 45 64  387 23 
+  6 98  215 314
+*   +   *   +  
+
+Each problem's numbers are arranged vertically; at the bottom of the problem is the symbol for the operation that needs to be performed. Problems are separated by a full column of only spaces. The left/right alignment of numbers within each problem can be ignored.
+
+So, this worksheet contains four problems:
+
+    123 * 45 * 6 = 33210
+    328 + 64 + 98 = 490
+    51 * 387 * 215 = 4243455
+    64 + 23 + 314 = 401
+
+To check their work, cephalopod students are given the grand total of adding together all of the answers to the individual problems. In this worksheet, the grand total is 33210 + 490 + 4243455 + 401 = 4277556.
+
+Of course, the actual worksheet is much wider. You'll need to make sure to unroll it completely so that you can read the problems clearly.
+
+Solve the problems on the math worksheet. What is the grand total found by adding together all of the answers to the individual problems? */
+
+var example_lines = [
+    "123 328  51 64 ",
+    " 45 64  387 23 ",
+    "  6 98  215 314",
+    "*   +   *   +  "
+]
+
+// Parse the worksheet to extract problems
+function parse_worksheet(lines) {
+    if (lines.len() == 0) {
+        return {}
+    }
+    
+    // Find the width - use the longest line
+    var width = 0
+    for (var i = 0; i < lines.len(); i = i + 1) {
+        var line_len = lines[i].len()
+        if (line_len > width) {
+            width = line_len
+        }
+    }
+    
+    // Extract columns
+    var columns = {}
+    for (var col = 0; col < width; col = col + 1) {
+        var column_chars = {}
+        for (var row = 0; row < lines.len(); row = row + 1) {
+            var line = lines[row]
+            if (col < line.len()) {
+                push(column_chars, substr(line, col, 1))
+            } else {
+                push(column_chars, " ")
+            }
+        }
+        push(columns, column_chars)
+    }
+    
+    // Group columns into problems
+    // A problem is separated by a full column of spaces
+    var problems = {}
+    var current_problem_cols = {}
+    
+    for (var col = 0; col < columns.len(); col = col + 1) {
+        var column = columns[col]
+        var is_empty = true
+        
+        // Check if column is all spaces
+        for (var i = 0; i < column.len(); i = i + 1) {
+            if (column[i] != " ") {
+                is_empty = false
+            }
+        }
+        
+        if (is_empty) {
+            // End of a problem (if we have accumulated columns)
+            if (current_problem_cols.len() > 0) {
+                push(problems, current_problem_cols)
+                current_problem_cols = {}
+            }
+        } else {
+            // Part of current problem
+            push(current_problem_cols, column)
+        }
+    }
+    
+    // Don't forget the last problem
+    if (current_problem_cols.len() > 0) {
+        push(problems, current_problem_cols)
+    }
+    
+    return problems
+}
+
+// Extract numbers and operator from a problem's columns
+function parse_problem(problem_cols) {
+    var height = problem_cols[0].len()
+    var numbers = {}
+    var operator = ""
+    
+    // Read each row
+    for (var row = 0; row < height; row = row + 1) {
+        var row_str = ""
+        for (var col = 0; col < problem_cols.len(); col = col + 1) {
+            row_str = row_str .. problem_cols[col][row]
+        }
+        row_str = trim(row_str)
+        
+        if (row_str.len() > 0) {
+            // Check if it's an operator (last row)
+            if (row_str == "*" || row_str == "+") {
+                operator = row_str
+            } else {
+                // It's a number
+                var num = to_int(row_str)
+                push(numbers, num)
+            }
+        }
+    }
+    
+    return {numbers: numbers, operator: operator}
+}
+
+// Calculate the result of a problem
+function calculate_problem(problem) {
+    var numbers = problem:numbers
+    var operator = problem:operator
+    
+    if (numbers.len() == 0) {
+        return 0
+    }
+    
+    var result = numbers[0]
+    
+    if (operator == "*") {
+        for (var i = 1; i < numbers.len(); i = i + 1) {
+            result = result * numbers[i]
+        }
+    } else if (operator == "+") {
+        for (var i = 1; i < numbers.len(); i = i + 1) {
+            result = result + numbers[i]
+        }
+    }
+    
+    return result
+}
+
+// Solve the worksheet
+function solve_worksheet(lines) {
+    var problems = parse_worksheet(lines)
+    var grand_total = 0
+    
+    print("Found", problems.len(), "problems:")
+    
+    for (var i = 0; i < problems.len(); i = i + 1) {
+        var problem = parse_problem(problems[i])
+        var result = calculate_problem(problem)
+        
+        // Print problem for debugging
+        var numbers = problem:numbers
+        var operator = problem:operator
+        var problem_str = to_string(numbers[0])
+        for (var j = 1; j < numbers.len(); j = j + 1) {
+            problem_str = problem_str .. " " .. operator .. " " .. to_string(numbers[j])
+        }
+        problem_str = problem_str .. " = " .. to_string(result)
+        print("  Problem", i + 1, ":", problem_str)
+        
+        grand_total = grand_total + result
+    }
+    
+    return grand_total
+}
+
+function main() {
+    print("=== Example ===")
+    var example_result = solve_worksheet(example_lines)
+    print("Grand total:", example_result)
+    print("Expected: 4277556")
+    print()
+    
+    print("=== Actual Input ===")
+    var input_text = read_entire_file("scripts/aoc2025/day06/input.txt")
+    var input_lines = split(input_text, "\n")
+    var result = solve_worksheet(input_lines)
+    print("Grand total:", result)
+}

@@ -1860,10 +1860,66 @@ void register_builtins(UdonInterpreter* interp)
 
 	binary("pow", std::pow);
 	binary("atan2", std::atan2);
+	interp->register_function("mod_floor", "a:number, b:number", "number", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
+	{
+		if (positional.size() != 2 || !is_numeric(positional[0]) || !is_numeric(positional[1]))
+		{
+			err.has_error = true;
+			err.opt_error_message = "mod_floor expects 2 numeric arguments";
+			return true;
+		}
+		const double a = as_number(positional[0]);
+		const double b = as_number(positional[1]);
+		if (b == 0.0)
+		{
+			err.has_error = true;
+			err.opt_error_message = "mod_floor divisor cannot be zero";
+			return true;
+		}
+		double r = std::fmod(a, b);
+		if (r != 0.0 && ((r > 0.0) != (b > 0.0)))
+			r += b;
+		out = wrap_number(r, positional[0], positional[1]);
+		return true;
+	});
 	binary("min", [](double a, double b)
 	{ return a < b ? a : b; });
 	binary("max", [](double a, double b)
 	{ return a > b ? a : b; });
+
+	interp->register_function("digits", "n:number", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
+	{
+		if (positional.size() != 1 || !is_numeric(positional[0]))
+		{
+			err.has_error = true;
+			err.opt_error_message = "digits expects 1 numeric argument";
+			return true;
+		}
+
+		const s64 raw = static_cast<s64>(as_number(positional[0]));
+		const bool is_zero = raw == 0;
+		const u64 mag = (raw < 0) ? static_cast<u64>(-(raw + 1)) + 1u : static_cast<u64>(raw);
+
+		std::vector<int> parts;
+		if (is_zero)
+			parts.push_back(0);
+		else
+		{
+			u64 v = mag;
+			while (v > 0)
+			{
+				parts.push_back(static_cast<int>(v % 10u));
+				v /= 10u;
+			}
+			std::reverse(parts.begin(), parts.end());
+		}
+
+		out.type = UdonValue::Type::Array;
+		out.array_map = interp->allocate_array();
+		for (size_t i = 0; i < parts.size(); ++i)
+			array_set(out, std::to_string(i), make_int(parts[i]));
+		return true;
+	});
 
 	auto binary_int = [interp](const std::string& name, s64 (*fn)(s64, s64))
 	{

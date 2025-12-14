@@ -46,13 +46,6 @@ var example_ranges = "11-22,95-115,998-1012,1188511880-1188511890,222220-222224,
 // *  Scan the sorted candidate list against the merged ranges in one pass, summing any candidate
 //    that falls inside the current range.
 
-function pow10(exp) {
-    var p = 1
-    for (var i = 0; i < exp; i = i + 1)
-        p = p * 10
-    return p
-}
-
 function parse_ranges(text) {
     var tokens = text.split(",")
     var ranges = []
@@ -99,13 +92,13 @@ function generate_repeated_numbers(max_value) {
     var half_len = 1
     while (true) {
         var digits = half_len * 2
-        var smallest_with_digits = pow10(digits - 1)
+        var smallest_with_digits = pow(10, digits - 1)
         if (smallest_with_digits > max_value)
             break
 
-        var pow_half = pow10(half_len)
-        var base = pow10(half_len - 1)
-        var base_limit = pow10(half_len) - 1
+        var pow_half = pow(10, half_len)
+        var base = pow(10, half_len - 1)
+        var base_limit = pow(10, half_len) - 1
         while (base <= base_limit) {
             var n = base * pow_half + base
             if (n > max_value)

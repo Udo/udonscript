@@ -1,0 +1,174 @@
+/* The big cephalopods come back to check on how things are going. When they see that your grand total doesn't match the one expected by the worksheet, they realize they forgot to explain how to read cephalopod math.
+
+Cephalopod math is written right-to-left in columns. Each number is given in its own column, with the most significant digit at the top and the least significant digit at the bottom. (Problems are still separated with a column consisting only of spaces, and the symbol at the bottom of the problem is still the operator to use.)
+
+Here's the example worksheet again:
+
+123 328  51 64 
+ 45 64  387 23 
+  6 98  215 314
+*   +   *   +  
+
+Reading the problems right-to-left one column at a time, the problems are now quite different:
+
+    The rightmost problem is 4 + 431 + 623 = 1058
+    The second problem from the right is 175 * 581 * 32 = 3253600
+    The third problem from the right is 8 + 248 + 369 = 625
+    Finally, the leftmost problem is 356 * 24 * 1 = 8544
+
+Now, the grand total is 1058 + 3253600 + 625 + 8544 = 3263827.
+
+Solve the problems on the math worksheet again. What is the grand total found by adding together all of the answers to the individual problems? */
+
+var input_path = "scripts/aoc2025/day06/input.txt"
+
+var example_lines = [
+  "123 328  51 64 ",
+  " 45 64  387 23 ",
+  "  6 98  215 314",
+  "*   +   *   +  "
+]
+
+// Part 2 rules: within each problem, read numbers by scanning columns right-to-left.
+// Each column (excluding the last operator row) forms a number from top (MSD) to bottom (LSD),
+// ignoring spaces.
+
+function parse_worksheet(lines) {
+  if (lines.len() == 0)
+    return {}
+
+  // Trim trailing completely-empty lines (common when splitting file content).
+  while (lines.len() > 0 && trim(lines[lines.len() - 1]).len() == 0)
+    pop(lines)
+  if (lines.len() == 0)
+    return {}
+
+  var width = 0
+  for (var i = 0; i < lines.len(); i = i + 1) {
+    var line_len = lines[i].len()
+    if (line_len > width)
+      width = line_len
+  }
+
+  // Build column arrays (each is a list of characters for that x position).
+  var columns = {}
+  for (var col = 0; col < width; col = col + 1) {
+    var column_chars = {}
+    for (var row = 0; row < lines.len(); row = row + 1) {
+      var line = lines[row]
+      if (col < line.len())
+        push(column_chars, substr(line, col, 1))
+      else
+        push(column_chars, " ")
+    }
+    push(columns, column_chars)
+  }
+
+  // Group columns into problems separated by all-space columns.
+  var problems = {}
+  var current = {}
+  for (var col = 0; col < columns.len(); col = col + 1) {
+    var column = columns[col]
+    var is_empty = true
+    for (var r = 0; r < column.len(); r = r + 1) {
+      if (column[r] != " ")
+        is_empty = false
+    }
+    if (is_empty) {
+      if (current.len() > 0) {
+        push(problems, current)
+        current = {}
+      }
+    } else {
+      push(current, column)
+    }
+  }
+  if (current.len() > 0)
+    push(problems, current)
+
+  return problems
+}
+
+function parse_problem_part2(problem_cols, op_row) {
+  var operator = ""
+  for (var c = 0; c < problem_cols.len(); c = c + 1) {
+    var ch = problem_cols[c][op_row]
+    if (ch == "+" || ch == "*") {
+      operator = ch
+      break
+    }
+  }
+
+  var numbers = {}
+  for (var c = problem_cols.len() - 1; c >= 0; c = c - 1) {
+    var digits = ""
+    for (var r = 0; r < op_row; r = r + 1) {
+      var ch = problem_cols[c][r]
+      if (ch != " ")
+        digits = digits .. ch
+    }
+    if (digits.len() > 0)
+      push(numbers, to_int(digits))
+  }
+
+  return {numbers: numbers, operator: operator}
+}
+
+function calculate_problem(problem) {
+  var numbers = problem:numbers
+  var operator = problem:operator
+  if (numbers.len() == 0)
+    return 0
+
+  var result = numbers[0]
+  if (operator == "*") {
+    for (var i = 1; i < numbers.len(); i = i + 1)
+      result = result * numbers[i]
+  } else if (operator == "+") {
+    for (var i = 1; i < numbers.len(); i = i + 1)
+      result = result + numbers[i]
+  }
+  return result
+}
+
+function solve_worksheet_part2(lines) {
+  var problems = parse_worksheet(lines)
+  if (problems.len() == 0)
+    return 0
+
+  var op_row = lines.len() - 1
+  var grand_total = 0
+
+  print("Found", problems.len(), "problems:")
+  for (var i = 0; i < problems.len(); i = i + 1) {
+    var problem = parse_problem_part2(problems[i], op_row)
+    var result = calculate_problem(problem)
+
+    // Debug print
+    var numbers = problem:numbers
+    var operator = problem:operator
+    var problem_str = to_string(numbers[0])
+    for (var j = 1; j < numbers.len(); j = j + 1)
+      problem_str = problem_str .. " " .. operator .. " " .. to_string(numbers[j])
+    problem_str = problem_str .. " = " .. to_string(result)
+    print("  Problem", i + 1, ":", problem_str)
+
+    grand_total = grand_total + result
+  }
+
+  return grand_total
+}
+
+function main() {
+  print("=== Example ===")
+  var example_result = solve_worksheet_part2(example_lines)
+  print("Grand total:", example_result)
+  print("Expected: 3263827")
+  print()
+
+  print("=== Actual Input ===")
+  var input_text = read_entire_file(input_path)
+  var input_lines = input_text.split("\n")
+  var answer = solve_worksheet_part2(input_lines)
+  print("Grand total:", answer)
+}

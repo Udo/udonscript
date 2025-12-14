@@ -26,24 +26,6 @@ var example_ranges = "11-22,95-115,998-1012,1188511880-1188511890,222220-222224,
 
 // Strategy: parse ranges, sort+merge them, generate all repeated-digit-block numbers up to the
 // maximum upper bound, and linearly scan the sorted candidates against the merged ranges to sum hits.
-function pow10(exp) {
-    var p = 1
-    for (var i = 0; i < exp; i = i + 1)
-        p = p * 10
-    return p
-}
-
-function digit_count(n) {
-    if (n == 0)
-        return 1
-    var d = 0
-    var x = n
-    while (x > 0) {
-        x = to_int(x / 10)
-        d = d + 1
-    }
-    return d
-}
 
 function parse_ranges(text) {
     var tokens = text.split(",")
@@ -90,10 +72,10 @@ function merge_ranges(sorted_ranges) {
 function generate_repeated_numbers(limit) {
     var nums = []
     var seen = {}
-    var max_digits = digit_count(limit)
+    var max_digits = len(digits(limit))
     for (var base_len = 1; base_len <= max_digits; base_len = base_len + 1) {
-        var pow_len = pow10(base_len)
-        var min_base = pow10(base_len - 1)
+        var pow_len = pow(10, base_len)
+        var min_base = pow(10, base_len - 1)
         var max_base_digits = pow_len - 1
         var max_rep = to_int(max_digits / base_len)
         for (var rep = 2; rep <= max_rep; rep = rep + 1) {
