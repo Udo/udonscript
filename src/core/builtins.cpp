@@ -1,6 +1,8 @@
 #include "helpers.h"
 #include <fstream>
 #include <sstream>
+#include <charconv>
+#include <system_error>
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -43,14 +45,19 @@ static bool parse_bool_string(const std::string& s, bool& out)
 
 static bool parse_number_string(const std::string& s, double& out, bool& is_int)
 {
-	char* end = nullptr;
-	out = std::strtod(s.c_str(), &end);
-	if (end == s.c_str() || *end != '\0')
-		return false;
 	const bool has_dot = s.find('.') != std::string::npos;
 	const bool has_exp = s.find('e') != std::string::npos || s.find('E') != std::string::npos;
 	is_int = !(has_dot || has_exp);
+	auto res = std::from_chars(s.data(), s.data() + s.size(), out);
+	if (res.ec != std::errc() || res.ptr != s.data() + s.size())
+		return false;
 	return true;
+}
+
+static bool parse_int_strict(const std::string& s, s64& out)
+{
+	auto res = std::from_chars(s.data(), s.data() + s.size(), out, 10);
+	return res.ec == std::errc() && res.ptr == s.data() + s.size();
 }
 
 static std::string trim_string(const std::string& s, bool left, bool right)
@@ -164,13 +171,17 @@ static std::string url_decode(const std::string& s)
 	{
 		if (s[i] == '+')
 			out.push_back(' ');
-		else if (s[i] == '%' && i + 2 < s.size())
-		{
-			std::string hex = s.substr(i + 1, 2);
-			char ch = static_cast<char>(std::strtol(hex.c_str(), nullptr, 16));
-			out.push_back(ch);
-			i += 2;
-		}
+	else if (s[i] == '%' && i + 2 < s.size())
+	{
+		std::string hex = s.substr(i + 1, 2);
+		int val = 0;
+		auto res = std::from_chars(hex.data(), hex.data() + hex.size(), val, 16);
+		if (res.ec == std::errc() && res.ptr == hex.data() + hex.size())
+			out.push_back(static_cast<char>(val));
+		else
+			out.push_back('%');
+		i += 2;
+	}
 		else
 			out.push_back(s[i]);
 	}
@@ -612,8 +623,12 @@ struct JsonParser
 		while (pos < s.size() && (std::isdigit(static_cast<unsigned char>(s[pos])) || s[pos] == '.'))
 			++pos;
 		std::string num = s.substr(start, pos - start);
-		double d = std::atof(num.c_str());
-		if (num.find('.') == std::string::npos)
+		double d = 0.0;
+		auto res = std::from_chars(num.data(), num.data() + num.size(), d);
+		if (res.ec != std::errc() || res.ptr != num.data() + num.size())
+			return false;
+		const bool is_int = num.find('.') == std::string::npos && num.find('e') == std::string::npos && num.find('E') == std::string::npos;
+		if (is_int)
 			out = make_int(static_cast<s64>(d));
 		else
 			out = make_float(static_cast<f64>(d));
@@ -914,19 +929,17 @@ void register_builtins(UdonInterpreter* interp)
 				key_list.push_back(value_to_string(k));
 				return true;
 			});
-			std::sort(key_list.begin(), key_list.end(), [](const std::string& a, const std::string& b)
-			{
-				char* end_a = nullptr;
-				char* end_b = nullptr;
-				const s64 ia = std::strtoll(a.c_str(), &end_a, 10);
-				const s64 ib = std::strtoll(b.c_str(), &end_b, 10);
-				const bool a_num = end_a && *end_a == '\0';
-				const bool b_num = end_b && *end_b == '\0';
-				if (a_num && b_num)
-					return ia < ib;
-				if (a_num != b_num)
-					return a_num; // numeric keys before non-numeric
-				return a < b;
+		std::sort(key_list.begin(), key_list.end(), [](const std::string& a, const std::string& b)
+		{
+			s64 ia = 0;
+			s64 ib = 0;
+			const bool a_num = parse_int_strict(a, ia);
+			const bool b_num = parse_int_strict(b, ib);
+			if (a_num && b_num)
+				return ia < ib;
+			if (a_num != b_num)
+				return a_num; // numeric keys before non-numeric
+			return a < b;
 			});
 			for (const auto& key : key_list)
 			{
@@ -1078,12 +1091,10 @@ void register_builtins(UdonInterpreter* interp)
 
 		auto key_cmp = [](const std::string& a, const std::string& b) -> bool
 		{
-			char* end_a = nullptr;
-			char* end_b = nullptr;
-			const s64 ia = std::strtoll(a.c_str(), &end_a, 10);
-			const s64 ib = std::strtoll(b.c_str(), &end_b, 10);
-			const bool a_num = end_a && *end_a == '\0';
-			const bool b_num = end_b && *end_b == '\0';
+			s64 ia = 0;
+			s64 ib = 0;
+			const bool a_num = parse_int_strict(a, ia);
+			const bool b_num = parse_int_strict(b, ib);
 			if (a_num && b_num)
 				return ia < ib;
 			if (a_num != b_num)

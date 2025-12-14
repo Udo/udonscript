@@ -4,6 +4,8 @@
 #include <cctype>
 #include <cstdlib>
 #include <sstream>
+#include <charconv>
+#include <system_error>
 
 struct JsxAttribute
 {
@@ -132,9 +134,8 @@ bool is_name_char(char c)
 
 bool parse_int_key(const std::string& s, s64& out)
 {
-	char* end = nullptr;
-	out = std::strtoll(s.c_str(), &end, 10);
-	return end && *end == '\0';
+	auto res = std::from_chars(s.data(), s.data() + s.size(), out, 10);
+	return res.ec == std::errc() && res.ptr == s.data() + s.size();
 }
 
 using ValueMap = std::unordered_map<std::string, UdonValue>;
@@ -556,9 +557,9 @@ bool parse_literal_value(const std::string& expr, UdonValue& out)
 		return true;
 	}
 
-	char* end = nullptr;
-	const double val = std::strtod(trimmed.c_str(), &end);
-	if (end && end != trimmed.c_str() && *end == '\0')
+	double val = 0.0;
+	auto res = std::from_chars(trimmed.data(), trimmed.data() + trimmed.size(), val);
+	if (res.ec == std::errc() && res.ptr == trimmed.data() + trimmed.size())
 	{
 		const bool is_int = trimmed.find('.') == std::string::npos && trimmed.find('e') == std::string::npos && trimmed.find('E') == std::string::npos;
 		if (is_int)
