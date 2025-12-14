@@ -887,6 +887,7 @@ static CodeLocation execute_function(UdonInterpreter* interp,
 std::vector<std::string> OpcodeNames;
 
 UdonInterpreter::UdonInterpreter()
+	: scratch_arena(1ull << 20, "scratch")
 {
 	OpcodeNames = {
 		"NOP",
@@ -981,6 +982,7 @@ void UdonInterpreter::reset_state(bool release_heaps, bool release_handles)
 	global_init_counter = 0;
 	lambda_counter = 0;
 	context_info.clear();
+	scratch_arena.reset();
 }
 
 struct FunctionBinding
@@ -1229,6 +1231,7 @@ void UdonInterpreter::register_function(const std::string& name,
 
 std::vector<Token> UdonInterpreter::tokenize(const std::string& source_code)
 {
+	ArenaResetGuard arena_scope(scratch_arena);
 	return tokenize_source(source_code, context_info);
 }
 

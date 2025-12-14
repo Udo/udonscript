@@ -2,6 +2,8 @@
 
 #include "types.h"
 #include <string>
+#include <memory>
+#include <typeinfo>
 
 struct Arena
 {
@@ -41,4 +43,37 @@ struct Arena
 	void free(void* ptr);
 	bool contains(const void* ptr) const;
 	bool owns(const void* ptr) const;
+};
+
+template <typename T>
+struct TypedArena
+{
+	using value_type = T;
+	Arena* arena = nullptr;
+
+	TypedArena() = default;
+	explicit TypedArena(Arena* a) : arena(a) {}
+
+	template <class U>
+	TypedArena(const TypedArena<U>& other) noexcept : arena(other.arena) {}
+
+	T* allocate(std::size_t n)
+	{
+		if (!arena)
+			throw std::bad_alloc();
+		void* p = arena->alloc(static_cast<u64>(n * sizeof(T)));
+		if (!p)
+			throw std::bad_alloc();
+		return static_cast<T*>(p);
+	}
+
+	void deallocate(T*, std::size_t) noexcept {}
+
+};
+
+struct ArenaResetGuard
+{
+	Arena& arena;
+	explicit ArenaResetGuard(Arena& a) : arena(a) { arena.reset(); }
+	~ArenaResetGuard() { arena.reset(); }
 };

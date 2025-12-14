@@ -17,6 +17,7 @@
 #include <sstream>
 #include <iterator>
 #include <unordered_set>
+#include "memory.hpp"
 #include "jsx.hpp"
 #include "udonscript2.h"
 #if defined(__unix__) || defined(__APPLE__)
@@ -864,6 +865,10 @@ void register_builtins(UdonInterpreter* interp)
 				++live_functions;
 		}
 		array_set(out, "functions", make_int(live_functions));
+		interp->stats.scratch_arena_used = interp->scratch_arena.used();
+		interp->stats.scratch_arena_capacity = interp->scratch_arena.capacity;
+		array_set(out, "arena_used", make_int(static_cast<s64>(interp->stats.scratch_arena_used)));
+		array_set(out, "arena_capacity", make_int(static_cast<s64>(interp->stats.scratch_arena_capacity)));
 		array_set(out, "stack_roots", make_int(static_cast<s64>(interp->stack.size())));
 		array_set(out, "active_env_root_sets", make_int(static_cast<s64>(interp->active_env_roots.size())));
 		array_set(out, "active_value_root_sets", make_int(static_cast<s64>(interp->active_value_roots.size())));
@@ -964,6 +969,7 @@ void register_builtins(UdonInterpreter* interp)
 
 	interp->register_function("sort", "arr:any, options?:any", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
+		ArenaResetGuard arena_scope(interp->scratch_arena);
 		if (positional.empty() || positional[0].type != UdonValue::Type::Array || !positional[0].array_map)
 		{
 			err.has_error = true;
@@ -1014,7 +1020,7 @@ void register_builtins(UdonInterpreter* interp)
 			size_t original_index = 0;
 		};
 
-		std::vector<Entry> entries;
+		std::vector<Entry, TypedArena<Entry>> entries((TypedArena<Entry>(&interp->scratch_arena)));
 		entries.reserve(array_length(positional[0]));
 		size_t original_idx = 0;
 		array_foreach(positional[0], [&](const UdonValue& k, const UdonValue& v)
@@ -1068,6 +1074,7 @@ void register_builtins(UdonInterpreter* interp)
 
 	interp->register_function("ksort", "arr:any, options?:any", "array", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
+		ArenaResetGuard arena_scope(interp->scratch_arena);
 		if (positional.empty() || positional[0].type != UdonValue::Type::Array || !positional[0].array_map)
 		{
 			err.has_error = true;
@@ -1081,7 +1088,8 @@ void register_builtins(UdonInterpreter* interp)
 			if (array_get(positional[1], "reverse", opt))
 				reverse = is_truthy(opt);
 		}
-		std::vector<std::pair<std::string, UdonValue>> entries;
+		std::vector<std::pair<std::string, UdonValue>, TypedArena<std::pair<std::string, UdonValue>>> entries(
+			(TypedArena<std::pair<std::string, UdonValue>>(&interp->scratch_arena)));
 		entries.reserve(array_length(positional[0]));
 		array_foreach(positional[0], [&](const UdonValue& k, const UdonValue& v)
 		{
@@ -1792,7 +1800,7 @@ void register_builtins(UdonInterpreter* interp)
 		return true;
 	});
 
-	interp->register_function("join", "arr:array, delim:string", "string", [](UdonInterpreter*, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
+	interp->register_function("join", "arr:array, delim:string", "string", [](UdonInterpreter* interp, const std::vector<UdonValue>& positional, UdonValue& out, CodeLocation& err)
 	{
 		if (positional.size() != 2 || positional[0].type != UdonValue::Type::Array)
 		{
@@ -1801,7 +1809,9 @@ void register_builtins(UdonInterpreter* interp)
 			return true;
 		}
 		std::string delim = value_to_string(positional[1]);
-		std::vector<std::pair<int, std::string>> elems;
+		ArenaResetGuard arena_scope(interp->scratch_arena);
+		std::vector<std::pair<int, std::string>, TypedArena<std::pair<int, std::string>>> elems(
+			(TypedArena<std::pair<int, std::string>>(&interp->scratch_arena)));
 		array_foreach(positional[0], [&](const UdonValue& k, const UdonValue& v)
 		{
 			int idx = 0;

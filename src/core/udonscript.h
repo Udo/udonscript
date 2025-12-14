@@ -8,6 +8,7 @@
 #include <unordered_set>
 #include <memory>
 #include <functional>
+#include "memory.hpp"
 
 #ifndef UDON_ASSERT
 #ifndef NDEBUG
@@ -369,6 +370,8 @@ struct UdonInterpreter
 		u64 opcode_counts[static_cast<size_t>(Opcode::OPCODE_MAX)] = { 0 };
 		u64 resolve_function_by_name_calls = 0;
 		std::vector<u64> opcode2_counts; // sized to VM2 opcode count when VM2 executes
+		u64 scratch_arena_used = 0;
+		u64 scratch_arena_capacity = 0;
 	} stats;
 
 	std::vector<void*> dl_handles;
@@ -379,6 +382,7 @@ struct UdonInterpreter
 	std::unordered_map<std::string, UdonValue> function_cache;
 	std::unordered_map<const std::vector<UdonInstruction>*, u64> code_cache_versions;
 	std::vector<std::vector<UdonValue>> value_buffer_pool;
+	Arena scratch_arena;
 
 	UdonInterpreter();
 	~UdonInterpreter();
