@@ -22,6 +22,8 @@
 #define UDON_USE_VM2 1
 #endif
 
+struct US2Function;
+
 struct CodeLocation
 {
 	u32 line;
@@ -355,6 +357,7 @@ struct UdonInterpreter
 	std::vector<std::string> declared_global_order;
 	std::vector<UdonValue> global_slots;
 	std::unordered_map<std::string, s32> global_slot_lookup;
+	std::unordered_map<std::string, US2Function> functions_v2;
 	std::vector<UdonValue> stack;
 	std::vector<UdonEnvironment**> active_env_roots;
 	std::vector<std::vector<UdonValue>*> active_value_roots;

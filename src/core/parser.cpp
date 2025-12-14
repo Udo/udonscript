@@ -32,7 +32,7 @@ size_t Parser::begin_scope(FunctionContext& ctx, std::vector<UdonInstruction>& b
 	ScopeFrame frame;
 	frame.scope = std::make_shared<ScopeInfo>();
 	frame.env_distance = 0;
-	if (runtime_scope)
+	if (runtime_scope && emit_scope_ops)
 	{
 		emit(body, Opcode::ENTER_SCOPE, { make_int(0) }, tok);
 	}
@@ -69,7 +69,7 @@ void Parser::emit_unwind_to_depth(FunctionContext& ctx, std::vector<UdonInstruct
 	for (size_t i = ctx.scope_stack.size(); i > target_depth; --i)
 	{
 		const bool runtime_scope = (i - 1 < ctx.runtime_scope_flags.size()) ? ctx.runtime_scope_flags[i - 1] : false;
-		if (runtime_scope)
+		if (runtime_scope && emit_scope_ops)
 			emit(body, Opcode::EXIT_SCOPE);
 	}
 }

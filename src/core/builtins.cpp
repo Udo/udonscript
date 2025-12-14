@@ -172,17 +172,17 @@ static std::string url_decode(const std::string& s)
 	{
 		if (s[i] == '+')
 			out.push_back(' ');
-	else if (s[i] == '%' && i + 2 < s.size())
-	{
-		std::string hex = s.substr(i + 1, 2);
-		int val = 0;
-		auto res = std::from_chars(hex.data(), hex.data() + hex.size(), val, 16);
-		if (res.ec == std::errc() && res.ptr == hex.data() + hex.size())
-			out.push_back(static_cast<char>(val));
-		else
-			out.push_back('%');
-		i += 2;
-	}
+		else if (s[i] == '%' && i + 2 < s.size())
+		{
+			std::string hex = s.substr(i + 1, 2);
+			int val = 0;
+			auto res = std::from_chars(hex.data(), hex.data() + hex.size(), val, 16);
+			if (res.ec == std::errc() && res.ptr == hex.data() + hex.size())
+				out.push_back(static_cast<char>(val));
+			else
+				out.push_back('%');
+			i += 2;
+		}
 		else
 			out.push_back(s[i]);
 	}
@@ -934,17 +934,17 @@ void register_builtins(UdonInterpreter* interp)
 				key_list.push_back(value_to_string(k));
 				return true;
 			});
-		std::sort(key_list.begin(), key_list.end(), [](const std::string& a, const std::string& b)
-		{
-			s64 ia = 0;
-			s64 ib = 0;
-			const bool a_num = parse_int_strict(a, ia);
-			const bool b_num = parse_int_strict(b, ib);
-			if (a_num && b_num)
-				return ia < ib;
-			if (a_num != b_num)
-				return a_num; // numeric keys before non-numeric
-			return a < b;
+			std::sort(key_list.begin(), key_list.end(), [](const std::string& a, const std::string& b)
+			{
+				s64 ia = 0;
+				s64 ib = 0;
+				const bool a_num = parse_int_strict(a, ia);
+				const bool b_num = parse_int_strict(b, ib);
+				if (a_num && b_num)
+					return ia < ib;
+				if (a_num != b_num)
+					return a_num; // numeric keys before non-numeric
+				return a < b;
 			});
 			for (const auto& key : key_list)
 			{

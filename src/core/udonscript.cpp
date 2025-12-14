@@ -15,6 +15,7 @@
 #include <dlfcn.h>
 #endif
 #include "parser.h"
+#include "parser2.h"
 #include "tokenizer.hpp"
 
 thread_local UdonInterpreter* g_udon_current = nullptr;
@@ -969,6 +970,7 @@ void UdonInterpreter::reset_state(bool release_heaps, bool release_handles)
 	globals.clear();
 	global_slots.clear();
 	global_slot_lookup.clear();
+	functions_v2.clear();
 	declared_globals.clear();
 	declared_global_order.clear();
 	stack.clear();
@@ -1304,70 +1306,9 @@ CodeLocation UdonInterpreter::compile_append(const std::string& source_code)
 {
 	seed_builtin_globals();
 	std::vector<Token> toks = tokenize(source_code);
-	std::vector<UdonInstruction> module_global_init;
 	std::unordered_set<std::string> chunk_globals = collect_top_level_globals(toks);
-	Parser parser(
-		toks,
-		instructions,
-		function_params,
-		function_variadic,
-		function_param_slots,
-		function_frame_sizes,
-		function_variadic_slot,
-		event_handlers,
-		module_global_init,
-		declared_globals,
-		declared_global_order,
-		chunk_globals,
-		lambda_counter);
-	CodeLocation res = parser.parse();
-	if (res.has_error)
-		return res;
-
-	rebuild_global_slots();
-
-	auto populate_context_global = [&]()
-	{
-		UdonValue ctx{};
-		ctx.type = UdonValue::Type::Array;
-		ctx.array_map = allocate_array();
-		for (const auto& pair : context_info)
-		{
-			UdonValue arr{};
-			arr.type = UdonValue::Type::Array;
-			arr.array_map = allocate_array();
-			s32 index = 0;
-			for (const auto& line : pair.second)
-			{
-				array_set(arr, std::to_string(index++), make_string(line));
-			}
-			array_set(ctx, pair.first, arr);
-		}
-		globals["context"] = ctx;
-		auto slot = get_global_slot("context");
-		if (slot >= 0)
-		{
-			if (global_slots.size() <= static_cast<size_t>(slot))
-				global_slots.resize(static_cast<size_t>(slot) + 1, make_none());
-			global_slots[static_cast<size_t>(slot)] = ctx;
-		}
-	};
-	populate_context_global();
-
-	if (!module_global_init.empty())
-	{
-		std::string init_fn = "__globals_init_" + std::to_string(global_init_counter++);
-		instructions[init_fn] = std::make_shared<std::vector<UdonInstruction>>(module_global_init);
-		function_params[init_fn] = std::make_shared<std::vector<std::string>>();
-		function_param_slots[init_fn] = std::make_shared<std::vector<s32>>();
-		function_frame_sizes[init_fn] = 0;
-		function_variadic_slot[init_fn] = -1;
-		UdonValue dummy;
-		CodeLocation init_res = run(init_fn, {}, dummy);
-		if (init_res.has_error)
-			return init_res;
-	}
-	return res;
+	Parser2 p2(*this, toks, chunk_globals);
+	return p2.parse();
 }
 
 CodeLocation UdonInterpreter::run(std::string function_name,

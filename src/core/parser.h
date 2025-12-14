@@ -27,7 +27,8 @@ struct Parser
 		std::unordered_set<std::string>& globals_out,
 		std::vector<std::string>& global_order_out,
 		const std::unordered_set<std::string>& chunk_globals_out,
-		s32& lambda_counter_ref)
+		s32& lambda_counter_ref,
+		bool emit_scope_ops_flag = true)
 		: tokens(tokens),
 		  current(0),
 		  stop_at_colon(false),
@@ -43,7 +44,8 @@ struct Parser
 		  globals(globals_out),
 		  global_order(global_order_out),
 		  chunk_globals(chunk_globals_out),
-		  lambda_counter(lambda_counter_ref)
+		  lambda_counter(lambda_counter_ref),
+		  emit_scope_ops(emit_scope_ops_flag)
 	{
 	}
 
@@ -65,6 +67,7 @@ struct Parser
 	std::vector<std::string>& global_order;
 	const std::unordered_set<std::string>& chunk_globals;
 	s32& lambda_counter;
+	bool emit_scope_ops = true;
 
 	struct ResolvedVariable
 	{

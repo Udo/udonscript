@@ -8,6 +8,10 @@
 #include <string>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <future>
+#include <chrono>
+#include <thread>
+#include <cstring>
 
 struct TestCase
 {
@@ -56,77 +60,94 @@ std::vector<std::string> list_files(const std::string& directory, const std::str
 	return files;
 }
 
-bool run_test(const TestCase& test, bool dump_us2, std::string& actual_output, std::string& error_msg)
+bool run_test(const TestCase& test, bool dump_us2, std::string& actual_output, std::string& error_msg, std::chrono::milliseconds timeout)
 {
-	std::ostringstream captured;
-	std::streambuf* old_cout = std::cout.rdbuf(captured.rdbuf());
-
-	UdonInterpreter interp;
-
-	std::string script = load_file(test.script_path);
-	if (script.empty())
+	auto task = [&]() -> bool
 	{
+		std::ostringstream captured;
+		std::streambuf* old_cout = std::cout.rdbuf(captured.rdbuf());
+
+		UdonInterpreter interp;
+
+		std::string script = load_file(test.script_path);
+		if (script.empty())
+		{
+			std::cout.rdbuf(old_cout);
+			error_msg = "Failed to load script";
+			return false;
+		}
+
+		CodeLocation compile_result = interp.compile(script);
+
+		if (compile_result.has_error)
+		{
+			std::cout.rdbuf(old_cout);
+			if (test.should_fail)
+			{
+				actual_output = "COMPILE_ERROR";
+				return true;
+			}
+			error_msg = "Compilation error: " + compile_result.opt_error_message;
+			return false;
+		}
+
+		UdonValue return_value;
+		CodeLocation run_result = interp.run_us2("main", {}, return_value);
+
+		if (dump_us2)
+		{
+			std::cout.rdbuf(old_cout);
+			UdonInterpreter2 vm;
+			CodeLocation err{};
+			if (vm.load_from_host(&interp, err))
+			{
+				auto it = vm.functions.find("main");
+				if (it != vm.functions.end())
+					std::cout << dump_us2_function(it->second) << "\n";
+			}
+			std::cout.rdbuf(captured.rdbuf());
+		}
+
 		std::cout.rdbuf(old_cout);
-		error_msg = "Failed to load script";
+
+		if (run_result.has_error)
+		{
+			if (test.should_fail)
+			{
+				actual_output = "RUNTIME_ERROR";
+				return true;
+			}
+			error_msg = "Runtime error: " + run_result.opt_error_message;
+			return false;
+		}
+
+		actual_output = captured.str();
+
+		while (!actual_output.empty() && (actual_output.back() == '\n' || actual_output.back() == '\r' || actual_output.back() == ' '))
+			actual_output.pop_back();
+
+		return true;
+	};
+
+	std::packaged_task<bool()> pt(task);
+	auto fut = pt.get_future();
+	std::thread t(std::move(pt));
+	if (fut.wait_for(timeout) == std::future_status::timeout)
+	{
+		error_msg = "Timeout";
+		t.detach();
 		return false;
 	}
-
-	CodeLocation compile_result = interp.compile(script);
-
-	if (compile_result.has_error)
-	{
-		std::cout.rdbuf(old_cout);
-		if (test.should_fail)
-		{
-			actual_output = "COMPILE_ERROR";
-			return true;
-		}
-		error_msg = "Compilation error: " + compile_result.opt_error_message;
-		return false;
-	}
-
-	UdonValue return_value;
-	CodeLocation run_result = interp.run_us2("main", {}, return_value);
-
-	if (dump_us2)
-	{
-		std::cout.rdbuf(old_cout);
-		UdonInterpreter2 vm;
-		CodeLocation err{};
-		if (vm.load_from_host(&interp, err))
-		{
-			auto it = vm.functions.find("main");
-			if (it != vm.functions.end())
-				std::cout << dump_us2_function(it->second) << "\n";
-		}
-		std::cout.rdbuf(captured.rdbuf());
-	}
-
-	std::cout.rdbuf(old_cout);
-
-	if (run_result.has_error)
-	{
-		if (test.should_fail)
-		{
-			actual_output = "RUNTIME_ERROR";
-			return true;
-		}
-		error_msg = "Runtime error: " + run_result.opt_error_message;
-		return false;
-	}
-
-	actual_output = captured.str();
-
-	while (!actual_output.empty() && (actual_output.back() == '\n' || actual_output.back() == '\r' || actual_output.back() == ' '))
-		actual_output.pop_back();
-
-	return true;
+	bool ok = fut.get();
+	t.join();
+	return ok;
 }
 
 int main(int argc, char* argv[])
 {
 	std::string test_dir = "scripts/testsuite";
 	bool dump_us2 = false;
+	std::chrono::milliseconds timeout(5000);
 
 	for (int i = 1; i < argc; ++i)
 	{
@@ -134,6 +155,13 @@ int main(int argc, char* argv[])
 		if (arg == "--dump-us2")
 		{
 			dump_us2 = true;
+			continue;
+		}
+		if (arg.rfind("--timeout=", 0) == 0)
+		{
+			int ms = std::stoi(arg.substr(strlen("--timeout=")));
+			if (ms > 0)
+				timeout = std::chrono::milliseconds(ms);
 			continue;
 		}
 		test_dir = arg;
@@ -189,7 +217,7 @@ int main(int argc, char* argv[])
 		std::string actual_output;
 		std::string error_msg;
 
-		bool ran_ok = run_test(test, dump_us2, actual_output, error_msg);
+		bool ran_ok = run_test(test, dump_us2, actual_output, error_msg, timeout);
 
 		if (!ran_ok)
 		{
@@ -238,3 +266,5 @@ int main(int argc, char* argv[])
 
 	return (failed == 0) ? 0 : 1;
 }
+#include <future>
+#include <chrono>

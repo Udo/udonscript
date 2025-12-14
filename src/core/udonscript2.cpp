@@ -149,8 +149,6 @@ static bool translate_instruction(const UdonInstruction& in,
 		{
 			s32 dropped = slots.pop();
 			clear_last(dropped);
-			o.opcode = Opcode2::POP;
-			out.push_back(o);
 			return true;
 		}
 		case Opcode::NOP:
@@ -192,13 +190,27 @@ static bool translate_instruction(const UdonInstruction& in,
 			s32 src = slots.pop();
 			if (src < 0)
 				src = 0;
+			bool rewritten = false;
+			if (static_cast<size_t>(src) < last_def.size() && last_def[static_cast<size_t>(src)] >= 0)
+			{
+				const size_t def_idx = static_cast<size_t>(last_def[static_cast<size_t>(src)]);
+				if (def_idx < out.size())
+				{
+					out[def_idx].dst = { depth, dst_slot };
+					rewritten = true;
+					last_def[static_cast<size_t>(dst_slot)] = static_cast<int>(def_idx);
+				}
+			}
 			clear_last(src);
-			o.opcode = Opcode2::MOVE;
-			o.dst = { depth, dst_slot };
-			o.a = { 0, src };
-			out.push_back(o);
-			ensure_last(dst_slot);
-			last_def[static_cast<size_t>(dst_slot)] = static_cast<int>(out.size() - 1);
+			if (!rewritten)
+			{
+				o.opcode = Opcode2::MOVE;
+				o.dst = { depth, dst_slot };
+				o.a = { 0, src };
+				out.push_back(o);
+				ensure_last(dst_slot);
+				last_def[static_cast<size_t>(dst_slot)] = static_cast<int>(out.size() - 1);
+			}
 			return true;
 		}
 		case Opcode::LOAD_GLOBAL:
@@ -220,12 +232,12 @@ static bool translate_instruction(const UdonInstruction& in,
 			s32 src = slots.pop();
 			if (src < 0)
 				src = 0;
+			clear_last(src);
 			o.opcode = Opcode2::STORE_GLOBAL;
 			o.a = { 0, src };
 			o.has_literal = !in.operands.empty();
 			o.literal = in.operands.empty() ? make_string("") : in.operands[0];
 			out.push_back(o);
-			clear_last(src);
 			return true;
 		}
 		case Opcode::ADD:
@@ -511,6 +523,14 @@ bool compile_to_us2(
 	code.reserve(legacy.size());
 	std::vector<int> last_def(static_cast<size_t>(legacy_frame_size), -1);
 	std::unordered_map<size_t, s32> slot_overrides;
+	std::vector<int> legacy_to_code(legacy.size(), -1);
+	struct JumpFix
+	{
+		size_t code_index;
+		s32 legacy_target;
+	};
+	std::vector<JumpFix> jumps;
+
 	for (size_t ip = 0; ip < legacy.size(); ++ip)
 	{
 		auto it = slot_overrides.find(ip);
@@ -528,9 +548,16 @@ bool compile_to_us2(
 			}
 		}
 
+		legacy_to_code[ip] = static_cast<int>(code.size());
+
 		const auto& instr = legacy[ip];
+		if (instr.opcode_instruction == Opcode::ENTER_SCOPE || instr.opcode_instruction == Opcode::EXIT_SCOPE)
+			continue; // ignore scope markers in VM2
+
+		const size_t before_emit = code.size();
 		if (!translate_instruction(instr, slots, code, last_def, err))
 			return false;
+		const size_t after_emit = code.size();
 
 		if (!instr.operands.empty() &&
 			(instr.opcode_instruction == Opcode::JUMP || instr.opcode_instruction == Opcode::JUMP_IF_FALSE))
@@ -546,8 +573,21 @@ bool compile_to_us2(
 				else
 					jt->second = std::min(jt->second, depth_after);
 			}
+			if (before_emit < after_emit)
+				jumps.push_back({ after_emit - 1, static_cast<s32>(raw_target) });
 		}
 	}
+
+	for (auto& jf : jumps)
+	{
+		if (jf.legacy_target < 0 || static_cast<size_t>(jf.legacy_target) >= legacy_to_code.size())
+		{
+			code[jf.code_index].jump_target = -1;
+			continue;
+		}
+		code[jf.code_index].jump_target = legacy_to_code[static_cast<size_t>(jf.legacy_target)];
+	}
+
 	out_fn.code = std::make_shared<US2Code>(std::move(code));
 	out_fn.frame_size = static_cast<size_t>(slots.max_slot);
 	out_fn.result_slot = 0;
@@ -1288,30 +1328,10 @@ bool UdonInterpreter2::load_from_host(UdonInterpreter* host_interp, CodeLocation
 	err.has_error = false;
 	if (!host_interp)
 		return true;
-	for (const auto& kv : host_interp->instructions)
+	for (const auto& kv : host_interp->functions_v2)
 	{
 		const std::string& name = kv.first;
-		if (!kv.second)
-			continue;
-		US2Function fn{};
-		fn.name = name;
-		auto frame_it = host_interp->function_frame_sizes.find(name);
-		size_t frame_size = (frame_it != host_interp->function_frame_sizes.end()) ? frame_it->second : 0;
-		if (!compile_to_us2(name, *kv.second, frame_size, fn, err))
-			return false;
-		auto param_it = host_interp->function_params.find(name);
-		if (param_it != host_interp->function_params.end() && param_it->second)
-			fn.params = *param_it->second;
-		auto var_it = host_interp->function_variadic.find(name);
-		if (var_it != host_interp->function_variadic.end())
-			fn.variadic = !var_it->second.empty();
-		auto ps_it = host_interp->function_param_slots.find(name);
-		if (ps_it != host_interp->function_param_slots.end() && ps_it->second)
-			fn.param_slots = *ps_it->second;
-		auto vs_it = host_interp->function_variadic_slot.find(name);
-		if (vs_it != host_interp->function_variadic_slot.end())
-			fn.variadic_slot = vs_it->second;
-		register_function(name, fn);
+		register_function(name, kv.second);
 	}
 	return true;
 }

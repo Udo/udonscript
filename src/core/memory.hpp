@@ -68,12 +68,17 @@ struct TypedArena
 	}
 
 	void deallocate(T*, std::size_t) noexcept {}
-
 };
 
 struct ArenaResetGuard
 {
 	Arena& arena;
-	explicit ArenaResetGuard(Arena& a) : arena(a) { arena.reset(); }
-	~ArenaResetGuard() { arena.reset(); }
+	explicit ArenaResetGuard(Arena& a) : arena(a)
+	{
+		arena.reset();
+	}
+	~ArenaResetGuard()
+	{
+		arena.reset();
+	}
 };
